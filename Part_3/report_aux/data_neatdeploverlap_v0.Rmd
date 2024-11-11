@@ -1,0 +1,40 @@
+## Overlap between neat and depleted
+
+`r length(protoverlap)` proteins are both in the depleted and neat dataset, `r length(protoverlap0)` of these are not excluded from either neat or depleted plasma and can be compared. The correlation between these, per visit, is summarized in Figure \@ref(fig:coroverlap)
+
+```{r coroverlap, fig.cap="Distribution Pearson correlation coefficient, r, between neat and depleted, based on **unnormalized** values. ", warning=FALSE, dependson="data"}
+Xo <- X %>% filter(Protein %in% protoverlap0) %>% filter(!is.na(logIntensity)) %>%  pivot_wider(id_cols=c("Protein", "subjid", "visit_nr"), names_from=exp, values_from = c("logIntensity", "logIntensity0")) 
+write_csv(Xo %>% dplyr::select(-starts_with("logIntensity_")) %>% arrange(Protein, subjid), file=file.path(intermediate, "logI_unnorm.csv"))
+write_csv(Xo %>% filter(Protein %in% protoverlap0) %>% dplyr::select(-starts_with("logIntensity0_")) %>% arrange(Protein, subjid), file=file.path(intermediate, "logI_norm.csv")) 
+roverlap <- Xo %>% group_by(Protein, visit_nr) %>% summarize(r0=cor(logIntensity0_depl, logIntensity0_neat, use="pair"))
+roverall <- Xo %>% group_by(Protein) %>% summarize(all=cor(logIntensity0_depl, logIntensity0_neat, use="pair"))
+write_csv(roverlap %>% pivot_wider(names_from=visit_nr, values_from = r0, names_prefix = "v") %>% full_join(roverall), file=file.path(intermediate, "Pearsonr_unnorm.csv")) 
+roverlap %>% ggplot(aes(x=r0)) + geom_histogram(bins=35, color="black") + facet_wrap(~paste0("v", visit_nr), ncol=1) + theme_bw()
+```
+
+
+```{r coroverlapnormex, fig.cap="Correlation between neat and depleted for a few randomly selected proteins. **Normalized** data is shown and Pearson correlation coefficient, r, between neat and depleted is computed.", fig.width=10, fig.height=10, warning=FALSE, dependson="data"}
+roverlap <- Xo %>% filter(Protein %in% protoverlap0) %>% group_by(Protein, visit_nr) %>%   summarize(r=cor(logIntensity_depl, logIntensity_neat, use="pair"), rho=cor(logIntensity_depl, logIntensity_neat, use="pair", method="spearman"))
+roverall <- Xo %>% filter(Protein %in% protoverlap0) %>% group_by(Protein) %>% summarize(all=cor(logIntensity0_depl, logIntensity0_neat, use="pair"))
+write_csv(roverlap %>% dplyr::select(-rho) %>% pivot_wider(names_from=visit_nr, values_from = r, names_prefix = "v") %>% full_join(roverall), file=file.path(intermediate, "Pearsonr_norm.csv"))
+set.seed(123)
+sel12 <- sample(protoverlap0, size=9)
+labs <- roverlap %>% filter(Protein %in% sel12) %>% group_by(Protein) %>% summarize(label=paste(sprintf("v%s: r=%.2f", visit_nr, r), collapse="\n"))
+Xo %>% filter(Protein %in% sel12) %>% ggplot(aes(x=logIntensity_neat, y=logIntensity_depl, color=visit_nr)) + geom_point() + geom_text(data=labs, aes(x=-Inf, y=Inf, label=label), color="black", hjust=0, vjust=1) + facet_wrap(~Protein, scales="free") + theme_bw()
+```
+
+
+```{r coroverlapnorm, fig.cap="Distribution of Pearson correlation coefficient, r, between neat and depleted, based on **normalized** values. ", dependson="data"}
+roverlap %>% ggplot(aes(x=r)) + geom_histogram(bins=35, color="black") + facet_wrap(~paste0("v", visit_nr), ncol=1) + theme_bw() 
+```
+
+To investigate if the relationship between neat and depleted is not linear, also Spearman's correlation coefficient is calculated and compared to Pearson's correlation coefficient. These two are in agreement, see Figure \@ref(fig:spearpear).
+
+```{r spearpear, fig.cap="Spearman's rho and Pearson's r for the correlation between neat and depleted.", dependson="data"}
+roverlap %>% ggplot(aes(r, rho, color=visit_nr)) + geom_point() + geom_abline(slope = 1, intercept = 0) + theme_bw() + xlab("Pearson's r") + ylab("Spearman's rho") 
+```
+
+### Summary
+
+The correlations between protein levels measured in neat and depleted plasma are in general low. As Spearman and Pearson correlations are similar this can not be explained by a non-linear relationship.
+

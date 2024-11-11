@@ -1,0 +1,32 @@
+## Association between protein level and Edi
+
+Association between Edi and missingness is shown in Figure \@ref(fig:Edimiss)
+
+```{r Edimiss, fig.cap="Missingness and Edi."}
+Xmiss <- X %>% group_by(sampleid, exp, visit, Cohort) %>% dplyr::summarize(fmiss=mean(is.na(logIntensity0)), Edi=setdiff(as.character(Edi), NA)) %>% mutate(Edi=as.Date(Edi))
+Xmiss %>% ggplot(aes(x=Edi, y=fmiss, color=paste(Cohort))) + geom_point() + facet_grid(visit~exp) 
+```
+
+
+Age of sample is estimated as time from Edi (estimated date of infection) to January 1, 2021. Association between protein level and sample age is assessed using linear regression, adjusted for patient age, resulting QQ-plot can be shown in Figure \@ref(fig:QQEdi) and Table \@ref(tab:topEdi). 
+
+```{r resEdi, warning=FALSE}
+#resEdi <- X %>% filter(!Excluded) %>% mutate(time=as.integer(difftime("2021-01-01", Edi, units = "day"))) %>% filter(!is.na(Cohort)) %>% group_by(Protein, visit, Cohort, exp) %>% summarize(lmmod(df=cur_data(), y="logIntensity", var="time", covars="Age", test="t", family=ifelse(all(Discrete), "binomial", "gaussian")), .groups="drop") 
+resEdi <- X %>% filter(!Excluded) %>% mutate(time=as.integer(difftime("2021-01-01", Edi, units = "day"))) %>% filter(!is.na(Cohort)) %>% group_by(Protein, visit, Cohort, exp) %>% mutate(y=if (mean(!is.na(logIntensity0))<0.8) 1*(!is.na(logIntensity0)) else logIntensity) %>% summarize(discretized=all(y %in% 0:1), lmmod(df=cur_data(), y="y", var="time", covars="Age", test="t", family=ifelse(all(y %in% 0:1), "binomial", "gaussian")), .groups="drop") 
+resEdi <- resEdi %>% left_join(Proteins, by=c(Protein="Protein", exp="exp"))
+```
+
+
+```{r QQEdi, fig.cap="QQ plot of p-value for association between protein value and time since Edi (to 2021-01-01).", dpi=96, dev="png"}
+pl <- resEdi %>% filter(variable=="time") %>% group_by(visit, Cohort, exp) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p), color=Cohort)) + geom_point() +  geom_abline(intercept = 0, slope=1)
+plot(pl + facet_grid(visit~exp)) 
+```
+
+
+```{r topEdi, results="asis"}
+tab <- resEdi %>% filter(variable=="time") %>% group_by(Cohort, exp) %>% mutate(q=p.adjust(p, method="BH")) %>% ungroup() %>%  mutate(Protein=paste0(substr(Protein, 1, 10), ifelse(proteingroup=="discretized", "*", ""))) %>% dplyr::select(Protein, PG.Genes, exp, Cohort, "Estimate", p, q) %>% mutate(PG.Genes=substr(PG.Genes, 1, 10)) %>% arrange(p) 
+if (verbose>2)
+  tab %>% head(15) %>% mutate(across(c("p", "q"), ~sprintf("%.2g", .x)), across(starts_with("Est"), ~sprintf("%.2g", .x))) %>% head(100) %>% kable(caption="Association between protein level and days since Edi.", ) %>% kable_styling() 
+```
+
+\FloatBarrier

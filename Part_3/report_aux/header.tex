@@ -1,0 +1,29 @@
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{eurosym}
+\usepackage{booktabs}
+\usepackage{ifthen}
+
+\usepackage{float}
+\usepackage{colortbl}
+
+\pagestyle{fancy}
+\fancyhf{}
+
+\newcommand{\staff}{Eva Freyhult}
+\newcommand{\staffEmail}{eva.freyhult@nbis.se}
+\newcommand{\coordinator}{}
+\newcommand{\affilations}{National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Department of Medical Sciences, Uppsala University, Uppsala, Sweden}
+\newcommand{\supportWeb}{http://nbis.se/support/support.html}
+\newcommand{\noIssue}{\#5800}
+
+\addtolength{\headheight}{1.0cm}
+\lhead{\ifthenelse{\value{page}=1}{\includegraphics[height=1.3cm, width=2.2cm]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/nbislogo_green_txt_f34bc9d3c3.png}}{}}
+\rhead{\ifthenelse{\value{page}=1}{\includegraphics[height=1.3cm, width=4cm]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/SciLifeLab_Logotype_Green_POS.png}}{NBIS \noIssue}}
+
+%\chead{\today}
+
+\rfoot{\thepage}
+\fancypagestyle{plain}{\pagestyle{fancy}} 
+

@@ -1,0 +1,869 @@
+---
+title: "Quality control of Spectronaut proteomic data (Both neat and depleted)"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    theme: cerulean
+    toc: true
+    toc_float: 
+      collapse : false
+    toc_depth: 3
+    code_folding: hide
+    number_sections: true
+    #css: report_aux/styles.css
+# bibliography: citations_in_report.bib
+knit: (function(input, ...) rmarkdown::render(input, ..., output_dir= "../report_aux"))
+---
+
+```{r Setup, echo=FALSE, include=FALSE}
+source("../report_aux/rmd_usual_setup.R")
+# Pre-loaded packages for report only
+library(kableExtra)
+library(janitor)
+```
+
+```{r Header, purl=TRUE}
+stopifnot(getRversion() >= "4.1.0")   # R base pipe
+
+## Pre-loaded packages
+# Please note that there are possibly more packages employed by direct calling
+# with double-colon '::' or triple-colon ':::'.
+library(tidyverse)
+
+# File neames
+fn <- list(
+  i = list(   # input
+    nt01 = "../data/s1_neat_Spectronaut.v01.RData",
+    dp01 = "../data/s1_depl_Spectronaut.v01.RData"
+  ),
+  pr = list(  # for presentation here 
+    run_neat = "../data/raw_internal/2021-11-19/NeatPlasma_MS_run_conditions.xlsx",
+    injt = "../data/s1_neat_injection.v01.RData",
+    c01 = "../data/s1-clinic.v01.RData"
+  ),
+  o = list(   # output
+    interim = "../data/interim/Spectronaut_after_trimming.RData"
+  ),
+  check = "../data/s1_Spectronaut.v02.RData"
+)
+# Brief check if all files exist
+stopifnot(all(file.exists(unlist(fn$i), dirname(unlist(fn$o)))))
+```
+
+## Two data sets
+
+The proteomic data of neat plasma and depleted plasma from a set of individuals (of two cohorts) were obtained. 
+The data of the two types were attached by matching sample IDs, setting apart the same protein of the two types.
+
+```{r Load data, purl=TRUE}
+# Load and combine proteomic data
+e <- lapply(
+  setNames(c("nt01", "dp01"), c("Neat", "Depleted")), 
+  \(.x) {
+    load(fn$i[[.x]], e <- new.env())
+    e
+  }
+)
+proteins <- imap_dfr(e, ~mutate(.x$proteins, prep_type = .y)) |> 
+  mutate(protein_type_id = paste(id, prep_type, sep = "-")) 
+spct <- imap_dfr(e, ~mutate(.x$spct, prep_type = .y)) |> 
+  mutate(protein_type_id = paste(protein_id, prep_type, sep = "-")) |> 
+  separate(sampleid, c("subjid", "visit_nr"), sep = "-", remove = FALSE)
+prep_types <- set_names(unique(spct$prep_type))
+rm(e)
+```
+
+```{r FUN - long_to_matrix & to_matrix_by_prep_type, purl=TRUE}
+#' Transform a long data frame to a matrix. Row names were filled with given
+#' values in `row`.
+#'
+#' @param x a longitudinal data frame that has those three columns given by
+#' `row`, `col` and `value`
+#' @param row,col which column will be the rows/columns of the output
+#' @param value the column of the values of the output matrix
+#'
+#' @return a matrix
+long_to_matrix <- function(x, 
+                           row = sampleid, 
+                           col = protein_type_id, 
+                           value = LogIntensities) {
+  pivot_wider(
+    data = x,
+    id_cols = {{row}}, 
+    names_from = {{col}},
+    values_from = {{value}}
+  ) |> 
+    column_to_rownames(as.character(enexpr(row))) |> 
+    as.matrix()
+}
+
+#' Transform to a list of matrices, which were divided by `prep_type`
+#'
+#' @param x a data frame
+#' @return a list of matrices
+to_matrix_by_prep_type <- function(x) {
+  split(x, x$prep_type) |>     # by prep_type
+    lapply(long_to_matrix)
+}
+```
+
+
+### Dimension
+
+* Number of samples : `r n_distinct(spct$sampleid)`
+* Number of proteins : `r n_distinct(spct$protein_type_id)`
+
+#### Samples
+
+```{r}
+sids <- map(prep_types, ~unique(spct$sampleid[spct$prep_type == .x]))
+```
+
+The samples only analyzed after immuno-depletion were 
+`r knitr::combine_words(setdiff(sids$Depleted, sids$Neat), before = "\u0060")`,
+while those without the depletion only were
+`r knitr::combine_words(setdiff(sids$Neat, sids$Depleted), before = "\u0060")`.
+
+```{r, results='markup'}
+# number of samples / subject
+per_subj <- distinct(spct, sampleid, subjid, visit_nr) |> 
+  add_count(subjid) |> 
+  rename(n_per_subj = n)    # tabyl also create 'n'
+
+per_subj_id <- per_subj |> 
+  group_by(n_per_subj) |> 
+  summarise(subjs = paste(subjid, collapse = ", ") |> str_trunc(50), .groups = "drop")
+  
+per_subj |>
+  tabyl(n_per_subj, visit_nr) |>
+  left_join(per_subj_id, by = "n_per_subj") |> 
+  adorn_title()
+```
+
+As one subject `194532` was analyzed for one time-point and by one preparation method (with depletion) only, all the data of the sample was removed. 
+
+```{r Remove the orphan sample, purl=TRUE}
+spct <- spct |> filter(sampleid != "194532-T1")
+```
+
+#### Proteins
+
+```{r Venndiagram-proteins by type}
+measured_by <- proteins |> 
+  mutate(value = TRUE) |> 
+  pivot_wider(id_cols = id, names_from = prep_type, values_fill = FALSE)
+
+ggplot(measured_by) +
+  ggvenn::geom_venn(aes(A = Neat, B = Depleted)) +
+  coord_fixed() +     # avoid oval shapes
+  theme_void()       # no frame
+```
+
+
+## Quality control
+
+_This chapter describes how the provided Spectronaut proteomic data was examined and processed for quality control._
+_Tables and figures are presented reflecting intermediate status during the preprocessing of the data._
+
+```{r FUN - prop_scatter_hist & attach_clinc}
+#' Scatter plat & histogram of proportion
+#'
+#' @param df_prop a data frame with `prop` and `wise`. Usually an output of
+#'   `cond_prop`.
+#' @param x the value to show in x-axis. The `prop` will be presented in y-axis.
+#' @param color the color aesthetic for those plots
+#' @param title title
+#' @importFrom expss var_lab
+#' @importFrom rlang as_label
+#' @importFrom grid textGrob gpar grid.arrange
+prop_scatter_hist <- function(df_prop, x, color, title = NULL) {
+  ylab <- expss::var_lab(df_prop$prop)  # variable label for y-axis label
+  
+  # scatter plot
+  scatter_ms <- ggplot(df_prop) +
+    geom_point(aes(x= {{x}}, y= prop, color = {{color}})) +
+    facet_grid(wise ~ .) +
+    theme(strip.text.y = element_blank()) +   # remove the labels of the facets
+    ylab(if (is.null(ylab)) "Proportion" else ylab) +
+    xlab(paste(rlang::as_label(enquo(x)), "of `LogIntensities`"))
+
+  # histogram       
+  hist_ms <- ggplot(df_prop, aes(x= prop)) +
+    geom_histogram(aes(y = ..density.., fill = {{color}}), bins = 20, 
+                   position = "identity", alpha = 0.3) +
+    geom_density(aes(color = {{color}})) +
+    coord_flip() +
+    facet_grid(wise ~ .) +
+    labs(x= "", y= "Density") +
+    guides(fill = "none", color = "none")
+
+  # both plots in one frame
+  top_title <- grid::textGrob(title, gp = grid::gpar(fontsize = 20))
+  gridExtra::grid.arrange(
+    scatter_ms, hist_ms,
+    ncol= 2, nrow= 1, widths= c(4, 2),
+    top = if(is.null(title)) NULL else top_title
+  )
+}
+```
+
+
+### Summary
+
+* No redundant nor exactly repeated value
+* Poor quality data was removed.
+* Imputation : replaced with a randomly chosen value between one and the minimum
+* Normalization : Cyclic Loess, neat and depleted samples separately
+* Inverse correlation between missingness and signal intensity was observed in proteins but not in samples. 
+It reflects some values of our data were missing not at random (MNAR) by lower-limit of detection. 
+* No indication for patient (or proteoform) dependent missingness was found. 
+
+### Redundancy
+
+No pairs of protein profiles were perfectly correlated.
+This check-up was added to detect if any group of values labelled with multiple proteins (or features) redundantly. 
+
+```{r Redundancy}
+# correlation between proteins
+corr <- to_matrix_by_prep_type(spct) |>
+  lapply(\(ea) {
+    out <- cor(ea, use = "pairwise.complete.obs")   # handle missing values
+    
+    # the number of values except NA in the columns of a pair
+    na_or_not <- !is.na(ea)
+    only_two <- (t(na_or_not) %*% na_or_not) < 3
+    out[only_two] <- 0    # meaningless two vs. two correlation
+    out
+  })
+
+# confirm no perfectly correlated proteins
+stopifnot(
+  all(corr$Depleted[upper.tri(corr$Depleted)] < 1),
+  all(corr$Neat[upper.tri(corr$Neat)] < 1)
+)
+```
+
+### Exactly repeated values
+
+```{r}
+stopifnot(anyDuplicated(spct$LogIntensities) == 0)
+```
+
+There was not any exactly repeated values.
+This check-up is for identification of such unexpected values in quantitative proteomic data. 
+
+### Distribution of signals
+
+Global distribution of protein signals is visualized. 
+
+```{r}
+ggplot(spct, aes(LogIntensities)) +
+  geom_histogram(aes(y = after_stat(density), fill = prep_type), 
+                 bins = 40, position = "identity", alpha = 0.5)
+```
+
+```{r, fig.height=4}
+ggplot(spct) +
+  geom_qq(aes(sample = LogIntensities)) +
+  facet_wrap(~prep_type)
+```
+
+The `LogIntensities` were as below.
+
+```{r, results='markup'}
+summary(spct$LogIntensities)
+```
+
+#### Zoom-in around 0
+
+The distribution of the signals around 0 (below 5) is presented below. 
+Some not many values close to zero were identified. 
+
+```{r Plot - LogIntensities < 5, fig.height=4}
+while (!is.null(dev.list()))  dev.off()
+lb <- floor(min(spct$LogIntensities) * 5) / 5
+ggplot(filter(spct, LogIntensities < 5)) +
+  geom_histogram(aes(LogIntensities, fill = prep_type), 
+                 breaks = seq(lb, 5, by = 1/5),
+                 position = "identity", alpha = 0.5) +
+  ggtitle("LogIntensities < 5")
+```
+
+#### Log intensity ≤ 0
+
+```{r}
+tmp <- sum(spct$LogIntensities <= 0)
+```
+
+There were `r tmp` (`r round(tmp/dim(spct)[1L] * 100, 5)`%) values below zeros in the given data. 
+All of them were from depleted samples.
+Because the following imputation chooses 0 as the lower bound of imputed values, those values below zero are replaced with zero. 
+
+```{r * Replace below zero *, purl=TRUE}
+spct <- spct |> 
+  mutate(LogIntensities = if_else(LogIntensities < 0, 0, LogIntensities))
+```
+
+```{r Plot - LogIntensities < 5 after replacement, fig.height=4}
+while (!is.null(dev.list()))  dev.off()
+ggplot(filter(spct, LogIntensities < 5)) +
+  geom_histogram(aes(LogIntensities, fill = prep_type), 
+                 breaks = seq(lb, 5, by = 1/5),
+                 position = "identity", alpha = 0.5) +
+  ggtitle("LogIntensities < 5 (After replacement)")
+```
+
+### Missing measures
+
+```{r FUN - cond_prop & cond_prop_by_prep_type, purl=TRUE}
+#' Compute the proportion of a condition, together with other summary statistics
+#'
+#' @param mat a input matrix
+#' @param cond_fun a function that returns a logical vector per row/column. The
+#'   proportion of TRUE is stored in the `prop` of the output.
+#' @param aggre_funs a list of functions with names, each of which compute a
+#'   summary statistic per row/column, e.g. median. Every function should accept
+#'   the argument `na.rm`. As the default, `na.rm` is set to TRUE.
+#' @param wises a vector of two characters, which tell what rows/columns
+#'   contain. The `wise` column of the output will get them indicating
+#'   directions.
+#' @return a tibble that has `wise`, `id`, `prop` and the names of the
+#'   functions. The `prop` has the proportions of the values satisfied the
+#'   condition given by `cond_fun`. Each column with a function name contains 
+#'   the output of the function.
+#' @importFrom rlang as_function
+cond_prop <- function(mat, cond_fun, aggre_funs = NULL, wises = c("Sample", "Protein")) {
+  # names are used for column names
+  nms <- names(aggre_funs)
+  if (!is.null(aggre_funs) && is.null(nms) || any(nms == "")) {
+    stop("The names of `aggre_funs` must be given.")
+  }
+  
+  lapply(
+    1L:2L,    # row-wise , column-wise
+    function(ii) {
+      tibble(
+        wise = case_when(
+          ii == 1L ~ wises[1], 
+          ii == 2L ~ wises[2],
+          TRUE ~ ""
+        ),
+        id = dimnames(mat)[[ii]],
+        prop = apply(mat, ii, \(x) {
+          rlang::as_function(cond_fun)(x) |>  # purrr lambda function
+            mean(na.rm = TRUE)
+        }),
+      ) |> 
+        add_column(
+          map_dfc(aggre_funs, ~apply(mat, ii, rlang::as_function(.x)))
+        )
+    }
+  ) |> 
+    bind_rows() |> 
+    mutate(wise = factor(wise, levels = wises))   # fix the order for plots
+}
+
+cond_prop_by_prep_type <- function(x, cond_fun, aggre_funs = NULL) {
+  to_matrix_by_prep_type(x) |> 
+    # compute missing proportion and other statistics
+    map(~ cond_prop(.x, cond_fun, aggre_funs)) |>
+    bind_rows(.id = "prep_type")   # longitudinal table
+}
+```
+
+#### Type of missingness
+
+Values can be missing by various reasons in SWATH-MS proteomics data. 
+Low abundant proteins are prone to generate missing values due to limit of detection (LOD), though the tendency was found weak in a study ([McGurk _et al._, 2019](https://academic.oup.com/bioinformatics/article/36/7/2217/5650405)).
+Such tendency was examined in our data set using the median as a representative of the abundance of a protein or a sample. 
+
+* **Protein-wise investigation revealed inverse correlation** as shown in a scatter plot below. 
+Proteins with lower median signals had generally more missing values.
+Such trends agree with the assumption of missing at not random.
+
+Please note, because a few samples were not analyzed by both sample preparations, missingness was primarily investigated keeping individual prep. types separate.
+
+```{r Missing proportion, purl=TRUE}
+sumstat <- list(
+  Median = ~median(.x, na.rm = TRUE) 
+  # MAD = ~mad(.x, na.rm = TRUE)
+) 
+
+# contains missing proportion together with median, MAD
+mssngs <- cond_prop_by_prep_type(spct, is.na, sumstat) |> 
+  expss::apply_labels(prop = "The proprotion of missing values")
+```
+
+```{r Scatter&Hist - median vs missing proportion}
+#| fig.dim = c(10, 8), 
+#| fig.cap = "The sample/protein-wise relationship between median intensities and missing value proportions is visualized using a scatter plot in the left panel.
+#|   The frequencies of the proportion are presented in histograms together with density plots to the right."
+
+prop_scatter_hist(mssngs, Median, prep_type)
+```
+
+Each sample preparation type was separately presented. 
+
+```{r Scatter&Hist - by prep type}
+#| fig.dim = c(10, 8), 
+for(ii in unique(spct$prep_type)) {
+  mssngs |> 
+    filter(prep_type == ii) |> 
+    prop_scatter_hist(Median, title = ii)
+}
+```
+
+<br>
+
+####  Sample-wise missingness
+
+##### Remove the samples with almost no data
+
+For the majority of the samples, about a half of the proteins were not measured in individual samples as shown in the histogram below. 
+**Two separate clusters** were obvious in the distribution plot of Neat samples' data, 
+which implies too much aberration of a few sample(s) with >90% missing values.
+
+```{r Histogram - missing prop of ind. samples, fig.dim = c(6, 3.5)}
+for(ii in prep_types) {
+  p <- mssngs |> 
+    filter(wise == "Sample", prep_type == ii) |> 
+    ggplot() +
+    geom_histogram(aes(x = prop), binwidth = 0.05, boundary = 1) +
+    xlim(0, 1) +
+    labs(x = expss::var_lab(mssngs$prop), y = "Frequency") +
+    ggtitle(ii)
+  print(p)
+}
+```
+
+```{r * Remove SAMPLES with too many missing values *, purl=TRUE}
+too_many_mssng_smpl <- mssngs |> 
+  filter(prop > 0.7 & wise == "Sample") |> 
+  arrange(desc(prop))
+spct <- spct |> 
+  anti_join(too_many_mssng_smpl, by = c("sampleid" = "id", "prep_type"))
+```
+
+`r english::Words(nrow(too_many_mssng_smpl))` sample(s) had more than 70% missingness.
+The ***sample(s) with too many missing values (>70%)*** are listed below and ***removed***. 
+
+```{r Table - samples with too many missing values}
+too_many_mssng_smpl |> 
+  mutate(prop = sprintf("%1.1f%%", prop * 100)) |>    # to percentage
+  select(Sample = id, 
+         "Prep. type" = prep_type,
+         "Missing proportion" = prop) |> 
+  kableExtra::kbl(align = "llrr") |> 
+  kableExtra::kable_styling(full_width = F)
+```
+
+
+##### Factors correlated with missingness
+
+Here, potentially correlated other factors were examined.
+Because of the significant difference between neat and depleted samples, missing proportion was computed per type as before. 
+
+```{r Missing proportions updated, purl=TRUE}
+mssngs_upd <- cond_prop_by_prep_type(spct, is.na, sumstat) |> 
+  expss::apply_labels(prop = "The proprotion of missing values")
+```
+
+The missing proportion values of those two cohorts were surprisingly different. 
+Especially, the missing proportions of IAVI visit 2 depleted samples were prominently higher than others. 
+
+```{r Missing - visit cohort, fig.dim = c(8, 4)}
+# Clinical information
+load(fn$pr$c01)
+
+# attach clinical information
+mssngs_upd_clinc <- mssngs_upd |> 
+  filter(wise == "Sample") |> 
+  separate(id, c("subjid", "visit_nr"), sep = "-", remove = FALSE) |>
+  select(-wise, sampleid = id) |> 
+  # add other factors for investigation
+  left_join(clinc, by = "subjid") 
+
+ggplot(mssngs_upd_clinc, aes(Cohort, prop)) +
+  ggpirate::geom_pirate(aes(color = visit_nr), show.legend = T) +
+  labs(color = "Visit number", y = expss::var_lab(mssngs_upd$prop)) +
+  facet_wrap(~prep_type)
+```
+
+* Missing proportion by Cohort in Depleted samples
+
+```{r, results='markup'}
+t.test(prop ~ Cohort, mssngs_upd_clinc, subset = prep_type == "Depleted")
+```
+
+* Missing proportion by Cohort in Neat samples
+
+```{r, results='markup'}
+tmp <- t.test(prop ~ Cohort, mssngs_upd_clinc, subset = prep_type == "Neat")
+print(tmp)
+```
+
+The p-value is `r signif(tmp$p.value)`.
+
+* Missing proportion by Cohort in Depleted samples collected at visit 2
+
+```{r, results='markup'}
+t.test(prop ~ Cohort, mssngs_upd_clinc, subset = prep_type == "Depleted" & visit_nr == "T2")
+```
+
+Focusing on wider spectrum of median values of Neat samples, `Date processed` was found to associate with them. 
+
+```{r Missing - Date processed}
+# get Date processed
+load(fn$pr$injt)
+run_neat <- readxl::read_xlsx(fn$pr$run_neat) |> 
+  mutate(FileName = str_replace(FileName, "uL", "ul")) |>   # mistmatch
+  left_join(injtn, by = c("FileName" = "run_id")) |>    # sampleid
+  mutate(`Date processed` = as.character(`Date processed`)) |> 
+  select(sampleid, `Date processed`)
+
+neat <- mssngs_upd_clinc |> 
+  left_join(run_neat, by = "sampleid") |> 
+  filter(prep_type == "Neat")
+  
+ggplot(neat, aes(Median, prop)) +
+  geom_point(aes(color = `Date processed`)) +
+  ylab(expss::var_lab(mssngs_upd$prop)) +
+  xlab("Median of `LogIntensities`")
+```
+
+
+```{r Missing - Date processed - box, fig.dim = c(8, 4)}
+#| fig.cap = "The number of samples in each column is presented at the bottom"
+give.n <- function(x) {
+  c(y = min(x), label = length(x))
+}
+
+ggplot(neat, aes(`Date processed`, Median)) +
+  geom_boxplot(aes(fill = `Date processed`)) +
+  geom_jitter(aes(color = `Date processed`)) +
+  stat_summary(fun.data = give.n, geom = "text") +
+  ylab("Median of `LogIntensities`") +
+  theme(axis.text.x = element_blank()) +
+  facet_wrap(~Cohort)
+```
+
+```{r, fig.dim = c(6, 4), dpi = 96}
+mssngs_upd_clinc |> 
+  ggplot(aes(Edi, prop)) +
+  geom_point(aes(color = prep_type, shape = Cohort)) +
+  ylab(expss::var_lab(mssngs_upd$prop)) +
+  xlab("Estimated date of infection")
+```
+
+#### Protein-wise missingness
+
+##### Remove the proteins with too many missing data (>80%)
+
+```{r * Remove PROTEINS with too many missing values *, purl=TRUE}
+too_many_mssng_protein <- mssngs_upd |> 
+  filter(prop > 0.8 & wise == "Protein") |> 
+  arrange(desc(prop))
+spct <- spct |> 
+  anti_join(too_many_mssng_protein, by = c(protein_type_id = "id"))
+```
+
+`r english::Words(nrow(too_many_mssng_protein))` proteins had more than 80% missingness.
+Those ***proteins with too many missing values (>80%)*** are listed below and ***removed***. 
+
+```{r Table proteins with too many missing values}
+#  show the proteins with too many missing values
+too_many_mssng_protein |> 
+  select(protein_type_id = id, prop) |> 
+  left_join(proteins, by = "protein_type_id") |>   # get Protein
+  mutate(prop = sprintf("%1.1f%%", prop * 100)) |>    # to percentage
+  select(Protein, "Prep. type" = prep_type, "Missing proportion" = prop) |> 
+  kbl(align = "lrl") |> 
+  kable_styling(full_width = F) |> 
+  scroll_box(height = "300px")
+```
+
+```{r Intermediate status save, echo=FALSE, eval=FALSE, purl=TRUE}
+save(spct, file = fn$o$interim)
+```
+
+</br>
+
+### Imputation and normalization
+
+```{r FUN - qqplot_per}
+#' Normal QQ plot per 
+#'
+#' @param x input table in longitudinal format
+#' @param i_col the columns to use the selection below
+#' @param subset selected subset to show
+#' @return a ggplot of multiple normal QQ plots
+qqplot_per <- function(x, i_col, subset) {
+  x |> 
+    filter({{i_col}} %in% subset) |> 
+    ggplot() +
+    geom_qq(aes(sample = LogIntensities), na.rm = T) +
+    facet_wrap(enexpr(i_col))
+}
+```
+
+```{r Imputation preparation}
+set.seed(202)
+# samples and proteins to show
+i_show <- list(
+  s = sample(unique(spct$sampleid), 12),
+  p = sample(unique(spct$protein_type_id), 12)
+)
+```
+
+#### Before imputation
+
+The signal intensities were already log-transformed and which of each sample had a normal(-like) distribution. 
+The points of obtained data of individual samples lie around a straight line in the normal quantile-quantile plots below.
+
+```{r QQplot of signal before imputation}
+qqplot_per(spct, sampleid, i_show$s) +
+  ggtitle("Normal Quantile-quantile plot per sample (randomly chosen 12)")
+qqplot_per(spct, protein_type_id, i_show$p) +
+  ggtitle("Normal QQ plot per protein (randomly chosen 12)")
+```
+
+
+#### Imputation
+
+Each missing value was replaced with a randomly chosen value between one and the minimum of the protein that has the missing value.
+This imputation was performed with non-logged values (i.e. 2^`LogIntensities`).
+
+_Here we followed the imputation method suggested by_
+_Christofer Karlsson (<christofer.karlsson@med.lu.se>)._
+
+```{r Imputation, purl=TRUE}
+### A modified version of Christofer Karlsson's approach
+set.seed(20220202)
+
+spct_imp <- lapply(
+  split(spct, spct$prep_type),
+  function(one_type) {
+    # Non-log-transformed intensities
+    spct_not_log <- one_type |> 
+      pivot_wider(id_cols = sampleid,
+                  names_from = protein_type_id,
+                  values_from = LogIntensities) |> 
+      pivot_longer(-sampleid, names_to = "protein_type_id", values_drop_na = FALSE) |>
+      mutate(value = 2^value)
+    
+    # determine max impute value per protein
+    max.impute.value <- spct_not_log |> 
+      group_by(protein_type_id) |>
+      summarise(max_imp = min(value, na.rm = TRUE), .groups = "drop")
+    
+    # join the max impute values to the prot.df
+    # impute missing values with runif
+    prot.df.imputed <- spct_not_log |>
+      left_join(max.impute.value, by = "protein_type_id") |>
+      mutate(
+        Imputed = if_else(is.na(value), TRUE, FALSE),
+        r_unif = sapply(max_imp, function(x) {
+          runif(1, min = 1, max = x)
+        }),
+        value = if_else(is.na(value), r_unif, value)
+      )
+    
+    # Store imputed data
+    prot.df.imputed |>
+      mutate(LogIntensities = log2(value)) |>
+      select(sampleid, protein_type_id, LogIntensities)
+  }
+) |> 
+  bind_rows(.id = "prep_type")
+```
+
+* Distribution of signal after imputation
+
+```{r QQplot of signal after imputation}
+qqplot_per(spct_imp, sampleid, i_show$s) +
+  ggtitle("Normal QQ plot per sample (randomly chosen 12)")
+qqplot_per(spct_imp, protein_type_id, i_show$p) +
+  ggtitle("Normal QQ plot per protein (randomly chosen 12)")
+```
+
+#### Normalization
+
+<!-- ```{r spct_qc NormalyzerDE, purl=TRUE, eval=TRUE} -->
+<!-- # NormalyzerDE doesn't allow values < 1 -->
+<!-- stopifnot(min(spct$LogIntensities) >= 1) -->
+
+<!-- data_mat <- 2^t(long_to_matrix(spct_imp)) -->
+<!-- smpl <- distinct(spct_imp, sample = sampleid) |> -->
+<!--   separate(sample, c("subjid", "group"), remove = FALSE) |> -->
+<!--   select(-subjid) |> -->
+<!--   mutate(group = factor(group)) -->
+<!-- stopifnot(identical(colnames(data_mat), smpl$sample)) -->
+
+<!-- sum_exp_obj <- SummarizedExperiment::SummarizedExperiment( -->
+<!--   data_mat, -->
+<!--   colData = smpl, -->
+<!--   rowData = data.frame(protein = rownames(data_mat)) -->
+<!-- ) -->
+<!-- NormalyzerDE::normalyzer(jobName = "HIV", -->
+<!--                          experimentObj = sum_exp_obj, -->
+<!--                          outputDir = "../cache") -->
+<!-- ``` -->
+
+
+The imputed data was normalized by Cyclic Loess using `normalizeCyclicLoess` function in `limma` package (`r packageVersion("limma")`).
+The normalization was performed keeping the data of the two sample types separate.
+
+```{r LOESS normalization, purl=TRUE}
+# Normalized by Cyclic Loess
+spct_proc <- spct_imp |>
+  # per preparation type
+  to_matrix_by_prep_type() |>
+  map_dfr(
+    ~t(.x) |>
+      limma::normalizeCyclicLoess() |>
+      as_tibble(rownames = "protein_type_id") |>
+      pivot_longer(-protein_type_id, names_to = "sampleid", values_to = "LogIntensities")
+  )
+```
+
+* Distribution of signal after the normalization
+
+```{r QQplot of signal after LOESS}
+qqplot_per(spct_proc, sampleid, i_show$s) +
+  ggtitle("Normal QQ plot per sample (randomly chosen 12)")
+qqplot_per(spct_proc, protein_type_id, i_show$p) +
+  ggtitle("Normal QQ plot per protein (randomly chosen 12)")
+```
+
+
+#### Progress of distribution
+
+```{r Plot - progress}
+bind_rows(
+  spct |> 
+    select(sampleid, protein_type_id, LogIntensities) |> 
+    filter(sampleid %in% i_show$s[1:3]) |> 
+    mutate(Status = "Before"),
+  spct_imp |> 
+    filter(sampleid %in% i_show$s[1:3]) |> 
+    mutate(Status = "After Imputatation"),
+  spct_proc |> 
+    filter(sampleid %in% i_show$s[1:3]) |> 
+    mutate(Status = "After Normalization")
+) |> 
+  mutate(
+    # fix the order
+    Status = factor(Status, levels = c(
+      "Before", 
+      "After Imputatation",
+      "After Normalization"
+    ))
+  ) |> 
+  ggplot() +
+  geom_histogram(aes(x = LogIntensities), na.rm = T, bins = 30) +
+  facet_grid(sampleid ~ Status) +
+  xlab("log of signal intensities") +
+  ggtitle("Signal distribution change per sample (randomly chosen 3)")
+```
+
+```{r Save, echo=FALSE, eval=FALSE, purl=TRUE}
+proteins <- proteins %>% 
+  filter(protein_type_id %in% spct_proc$protein_type_id)
+
+save(spct_proc, proteins, file= fn$o$sp02)
+```
+
+```{r Confirm the same processed output, echo=FALSE}
+if (!is.null(fn$check) && file.exists(fn$check)) {
+  spct_proc_thru_report <- spct_proc
+  load(fn$check, envir = e <- new.env())
+  stopifnot(identical(spct_proc_thru_report, e$spct_proc))
+  rm(e)
+}
+```
+
+<br>
+
+## After QC
+
+### Dimension
+
+* Number of samples : `r n_distinct(spct_proc$sampleid)`
+* Number of proteins : `r n_distinct(spct_proc$protein_type_id)`
+
+### Proteins
+
+```{r Venndiagram - after QC}
+measured_by <- proteins |> 
+  filter(protein_type_id %in% spct_proc$protein_type_id) |> 
+  mutate(value = TRUE) |> 
+  pivot_wider(id_cols = id, names_from = prep_type, values_fill = FALSE)
+
+ggplot(measured_by) +
+  ggvenn::geom_venn(aes(A = Neat, B = Depleted)) +
+  coord_fixed() +
+  theme_void()
+```
+
+### Plots
+
+* Mean-Difference plot
+
+```{r MA-plots, fig.dim=c(10, 8)}
+#' Make a mean-difference plot
+#'
+#' @param spct_tbl a data.frame that contains protein data in long format
+mean_diff_plot <- function(spct_tbl) {
+  id_cols <- quote(c(subjid, protein_type_id))
+
+  # visit number in columns
+  by_visit <- spct_tbl |>
+    separate(sampleid, c("subjid", "visit_nr"), sep = "-") |> 
+    pivot_wider(id_cols = !! id_cols, names_from = visit_nr, values_from = LogIntensities)
+  
+  # LogIntensities in a matrix
+  mat <- select(by_visit, -!! id_cols) |> 
+    as.matrix()
+  
+  # pairwise combintions 
+  nm <- combn(colnames(mat), 2, paste, collapse = " & ")
+  
+  rotation <- do.call(
+    "cbind", 
+    combn(ncol(mat), 2, FUN = function(x) {
+      out <- matrix(0, nrow = ncol(mat), ncol = 2)
+      out[x, 1] <- c(1, -1)   # difference
+      out[x, 2] <- 1/2        # mean
+      out
+    }, simplify = F)
+  ) |> 
+    `colnames<-`(paste(c("Difference", "Mean"), rep(nm, each = 2), sep = "_"))
+  
+  # Mean, Difference by matrix multiplication
+  ma <- add_column(
+    select(by_visit, !! id_cols), 
+    mat %*% rotation |> 
+      as_tibble()
+  ) |> 
+    pivot_longer(-!! id_cols) |>    # one value per row
+    separate(name, c("what", "pair"), sep = "_") |> 
+    pivot_wider(names_from = what) |>     # split to mean and difference
+    drop_na(Difference, Mean) |> 
+    left_join(select(clinc, subjid, Cohort), by = "subjid") |>   # add Cohort
+    separate(protein_type_id, c("protein_id", "prep_type"), sep = "-") # prep_type
+  for(ii in unique(ma$pair)) {
+    p <- ma |> 
+      filter(pair == ii) |> 
+      ggplot(aes(Mean, Difference)) +
+      geom_point() +
+      geom_smooth(method = "loess", formula = y ~ x, se = FALSE) +
+      facet_wrap(Cohort ~ prep_type) +
+      ggtitle(paste("Visits", ii))
+    print(p)
+  }
+}
+
+mean_diff_plot(spct_proc)
+```
+
+

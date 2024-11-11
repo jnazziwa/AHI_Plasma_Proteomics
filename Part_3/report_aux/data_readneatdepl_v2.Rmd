@@ -1,0 +1,226 @@
+<!-- Load and use data from neat (old spectronaut file) and depl (new spectronaut file) -->
+
+```{r files}
+datadir <- "../../data"
+## Files generated using Mun-Gwan's scipt
+files <- list(vload=file.path(datadir, "s1-viral_load.v01.RData"),
+              clinc=file.path(datadir, "s1-clinic.v01.RData"),
+              neat=file.path(datadir, "s1_neat_Spectronaut.v01.RData"),
+              depl=file.path(datadir, "s1_depl_Spectronaut.v01.RData")
+              )
+```
+
+```{r vload}
+##vload
+load(files$vload)
+```
+
+```{r clinc}
+##clinc
+load(files$clinc)
+```
+
+```{r Cohortfix}
+clinc <- clinc %>% mutate(Cohort=c(Durban="Durban", Kigali="IAVI", Kilifi="IAVI", Lusaka="IAVI")[Site]) %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) 
+```
+
+```{r ARTstart, warning=FALSE}
+art <- read_excel(file.path(datadir, "raw_internal", "2021-04-23", "Protocol_C_with_ART_start_date_for_JN_23042021.xlsx")) %>% filter(!is.na(pid)) %>% mutate(subjid=as.character(pid))
+startart <- art %>% dplyr::select(subjid, artstart_date) %>% distinct() %>% filter(subjid %in% clinc$subjid) %>% mutate(artstart_date=as.Date(artstart_date))
+artdurban <- read_excel(file.path(datadir, "raw_internal", "Durban_ART_startdate.xlsx")) %>% mutate(subjid=gsub(".*-", "", PID))
+
+startart <- startart %>% full_join(artdurban %>% mutate(artstart_date=as.Date(as.numeric(`Treatment start date`), origin="1899-12-30")) %>% dplyr::select(subjid, artstart_date, revised_edi))
+clinc <- clinc %>% left_join(startart, by="subjid")
+```
+
+
+```{r VLCD48, warning=FALSE}
+##HLA, KIR, VL
+IAVI <- sapply(c("vload_cd4_cd8", "HLA", "KIR"), function(sheet) read_excel(file.path(datadir, "raw_internal", "IAVI_CD4_VL_HLA_KIR.xlsx"), sheet=sheet))
+Durban <- sapply(c("CD4_CD8", "HLA", "KIR", "VL setpoint"), function(sheet) read_excel(file.path(datadir, "raw_internal", "Durban_CD4_VL_HLA_KIR.xlsx"), sheet=sheet))
+vload <- IAVI$vload_cd4_cd8 %>% mutate(subjid=sprintf("%03d", pid))
+
+vload2 <- read_excel(file.path(datadir, "raw_internal", "CD4_CD8_Proteomics_08062021.xlsx")) %>% group_by(pid) %>% fill(artstartdate, .direction="updown") %>% ungroup() %>% mutate(ARTstatus=ifelse(!is.na(artstartdate), ifelse(grepl("[Uu]nknown", artstartdate), "Unknown", ifelse(grepl("not treated", artstartdate), "Not treated", "ART")), NA), artstart_date=as.Date(as.numeric(artstartdate), origin="1899-12-30")) %>% filter(!is.na(cd4cells)|!is.na(cd8cells)|!is.na(cd4percent)|!is.na(cd8percent))
+vload <- vload %>% mutate(vl1=TRUE) %>% full_join(vload2 %>% mutate(visittime=visitdate, visitdate=as.Date(visittime), vl2=TRUE))
+```
+
+```{r imputeandnorm} 
+imputeandnorm <- function(spct, fnorm=0.20, fexcl=0.80) {
+  ##  A modified version of Filip Arman and Christofer Karlsson's approach
+  
+  # reshape to long
+  spct_l <- spct %>%
+    `^`(2, .) %>%     # base 2
+    as_tibble(rownames = "sampleid") %>%
+    pivot_longer(-sampleid, names_to = "Protein") %>%
+    ##Replace anything below 1 by 1
+    mutate(value=pmax(1, value))
+  
+  # determine max impute value per protein
+  max.impute.value <- spct_l %>%
+    group_by(Protein) %>%
+    summarise(min_int = min(value, na.rm = T), .groups = "drop") %>%
+    mutate(max_imp = min_int)
+  ##    mutate(max_imp = 0.5 * min_int)
+  min_imp <- min(max.impute.value$min_int)
+  
+  # join the max impute values to the prot.df
+  # impute missing values with runif
+  prot.df.imputed <- spct_l %>%
+    left_join(max.impute.value, by = "Protein") %>%
+    mutate(
+      Imputed = if_else(is.na(value), TRUE, FALSE),
+      r_unif = sapply(max_imp, function(x) {
+        ## suppressWarnings(runif(1, min = 0.005*x, max = x))
+        suppressWarnings(runif(1, min = 1, max = x))
+      }),
+      value = if_else(is.na(value), r_unif, value)
+    ) %>% group_by(Protein) %>% 
+    mutate(fmiss=mean(Imputed)) %>% ungroup()
+  
+  ## Fraction missing values
+  fmiss <- prot.df.imputed %>% group_by(Protein) %>% summarize(fmiss=mean(Imputed))
+  protnorm <- fmiss %>% filter(fmiss<=fnorm) %>% pull("Protein")
+  
+  # Store imputed data
+  spct_imp <- prot.df.imputed %>% filter(fmiss<=fnorm) %>%
+    pivot_wider(sampleid, names_from = Protein) %>%
+    column_to_rownames("sampleid") %>%
+    as.matrix() %>% 
+    log2()
+  
+  ##  Normalization ----------------------------------------------------------
+  # Normalized by variance stabilizing normalization, based only on proteins with < 20% missing
+  spct_norm <- t(limma::normalizeVSN(2^t(spct_imp[, protnorm])))
+  
+  ## Discretize proteins with between 20 and 80% missing
+  spct_disc <- prot.df.imputed %>% filter(fmiss>fnorm&fmiss<=fexcl) %>% mutate(detected=!Imputed) %>%
+    pivot_wider(sampleid, names_from = Protein, values_from = detected) %>%
+    column_to_rownames("sampleid") %>%
+    as.matrix()
+  
+  if (ncol(spct_disc)==0)
+    spct_proc <- spct_norm
+  else
+    spct_proc <- cbind(spct_norm, spct_disc)
+  proteinlist <- list(discrete=colnames(spct_disc), norm=colnames(spct_norm))
+  proteins <- proteins %>% mutate(Discrete=id %in% colnames(spct_disc), Imputed=id %in% colnames(spct_norm), Excluded=!(id %in% colnames(spct_proc)))
+  Nprot <-sapply(proteinlist, length)
+  Nprot['excluded'] <- ncol(spct) - sum(Nprot)
+  ## For compatibility with older code
+  protkeep <-unlist(proteinlist)
+  
+  ## Raw data before imputation
+  sinfo_raw <- spct %>% 
+    as_tibble(rownames = "sampleid") %>%
+    pivot_longer(all_of(colnames(spct)), "Protein", values_to = "logIntensity0")  %>% mutate(Discrete=Protein %in% colnames(spct_disc), Imputed=Protein %in% colnames(spct_norm), Excluded=!(Protein %in% colnames(spct_proc)))
+  
+  #  combine clinical info and proteomic data
+  X <- sinfo_raw %>% full_join(spct_proc %>% 
+                                 as_tibble(rownames = "sampleid") %>% 
+                                 pivot_longer(all_of(colnames(spct_proc)), "Protein", values_to = "logIntensity")) %>% mutate(proteingroup=ifelse(is.na(logIntensity), "excluded", ifelse(Discrete, "discretized", "normalized")))
+  
+  return(X) #list(norm=spct_norm, disc=spct_disc))
+}
+```
+
+```{r loadneat}
+load(files$neat)
+```
+
+```{r neatproteins}
+Proteins <- proteins %>% mutate(exp="neat")
+```
+
+```{r neatimputeandnorm, warning=FALSE}
+chrt <- with(injtn %>% filter(sampleid %in% rownames(spct)),  split(sampleid, Cohort))
+chrt$both <- rownames(spct)
+chrt <- chrt[c(3, 1:2)]
+
+set.seed(20210204)
+neat_spct <- lapply(chrt, function(ind)  imputeandnorm(spct[ind,]))
+neat_spct$both80 <- imputeandnorm(spct, fnorm=0.80, fexcl=0.80)
+
+neat <- neat_spct$both %>% full_join(full_join(neat_spct$Durban, neat_spct$IAVI), by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_cohort"))
+neat <- neat_spct$both80 %>% full_join(neat, by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_2080"))
+
+sampleinfo <- injtn %>% dplyr::select(sampleid, subjid, visit_nr) %>% 
+  left_join(clinc, by = "subjid") %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) %>% 
+  mutate(visit_nr = ordered(visit_nr, levels = c("0", "1", "2"))) 
+
+neat <- neat %>% left_join(sampleinfo)
+```
+
+```{r}
+neatinfo <- read_excel(file.path(datadir, "raw_internal/2021-11-25/NeatPlasma_MS_run_conditions.xlsx")) %>% mutate(FileName=sub("uL", "ul", FileName))
+sampleinfo <- sampleinfo %>% left_join(neatinfo, by=c(sampleid="FileName"))
+
+neat <- neat %>% left_join(neatinfo, by=c(sampleid="FileName"))
+```
+
+```{r loaddepl}
+load(files$depl)
+## Use new data
+spct <- spct_long %>% filter(!is.na(LogIntensities)) %>% 
+  pivot_wider(sampleid, 
+              names_from = "protein_id", 
+              values_from = LogIntensities) %>% 
+  column_to_rownames("sampleid") %>%
+  as.matrix()
+```
+
+```{r deplproteins}
+Proteins <- Proteins %>% full_join(proteins %>% mutate(exp="depl")) %>% mutate(Protein=id)
+```
+
+```{r deplimputeandnorm, warning=FALSE}
+deplsampleinfo <- sinfo %>%
+  mutate(subjid=str_pad(subjid, 3, pad="0")) %>%
+  left_join(clinc, by = "subjid") %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) %>% 
+  mutate(visit_nr = ordered(visit_nr, levels = c("0", "1", "2")))
+
+chrt <- with(deplsampleinfo %>% filter(sampleid %in% rownames(spct)),  split(sampleid, Cohort))
+chrt$both <- rownames(spct)
+chrt <- chrt[c(3, 1:2)]
+
+set.seed(20210204)
+depl_spct <- lapply(chrt, function(ind)  imputeandnorm(spct[ind,]))
+depl_spct$both80 <- imputeandnorm(spct, fnorm=0.80, fexcl=0.80)
+
+depl <- depl_spct$both %>% full_join(full_join(depl_spct$Durban, depl_spct$IAVI), by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_cohort"))
+depl <- depl_spct$both80 %>% full_join(depl, by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_2080"))
+
+depl <- depl %>% left_join(deplsampleinfo)
+```
+
+```{r}
+deplinfo <- read_excel(file.path(datadir, "raw_internal/2021-11-25/Copy of Depleted_plasma_samples_DIAresultSummary_plus depletionbatch_19Nov21.xlsx"), skip=1)%>% filter(!is.na(`#MassSpecID`)) %>% rename(Replicate=`#MassSpecID`)
+deplinfo <- deplinfo %>% mutate(id2=sub("_.*", "", sub("[0-9]*_", "", deplinfo$FileName)))
+deplsampleinfo <- deplsampleinfo %>% left_join(deplinfo)
+depl <- depl %>% left_join(deplinfo)
+```
+
+```{r data}
+#neat <- readRDS(file.path(dataneat, "neat.Rds"))
+#depl <- readRDS(file.path(datadepl, "depl.Rds"))
+X <- neat %>% mutate(exp="neat") %>% full_join(depl %>% mutate(exp="depl"))
+rm(neat) 
+rm(depl)
+X <- X %>% mutate(visit=factor(paste0("v", visit_nr), ordered=FALSE),
+                  visitnr=as.numeric(as.character(visit_nr)))
+```
+
+
+```{r prots, dependson="data"}
+Proteins <- Proteins %>% full_join(X %>% select(Protein, proteingroup, exp) %>% distinct()) 
+table(Proteins$proteingroup, Proteins$exp) %>% kable(caption="Number of proteins from each of the experiments.") %>% kable_styling(full_width = FALSE)
+prots <- with(Proteins, split(Protein, exp))
+protoverlap <- intersect(prots$neat, prots$depl)
+
+protgroups <- Proteins %>% group_by(Protein) %>% summarize(neat=sum(exp=="neat"), neatgr=if (any(exp=="neat")) proteingroup[exp=="neat"] else NA, depl=sum(exp=="depl"), deplgr=if (any(exp=="depl")) proteingroup[exp=="depl"] else NA)
+table(paste("neat", protgroups$neatgr), paste("depl", protgroups$deplgr))[c(1,3,2), c(1,3,2)]  %>% kable(caption="Number of proteins from each of the experiments.") %>% kable_styling(full_width = FALSE)
+```
+

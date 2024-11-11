@@ -1,0 +1,20 @@
+/* fig.cap */
+.caption {
+  color: #737373;
+  font-size: 1em;
+  font-family: Helvetica, sans-serif;
+}
+
+/* kable caption */
+caption {
+  font-weight: bold;
+  font-size: 1.2em;
+}
+
+/* kableExtra::footnote */
+tfoot {
+  color: #737373;
+  font-size: 1em;
+  font-family: Helvetica, sans-serif;
+}
+

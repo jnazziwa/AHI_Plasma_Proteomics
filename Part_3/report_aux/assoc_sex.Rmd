@@ -1,0 +1,138 @@
+## Sex
+
+Is there a difference in protein expression between males and females? Might be tricky to distinguish between sex and cohort/subtype.
+
+Compare the models
+
+`protein ~ sex + subtype + cohort`
+
+and 
+
+`protein ~ subtype + cohort`
+
+for each visit separately using a likelihood ratio test (LRT).
+
+
+
+```{r}
+var <- "sex"
+sexfile <- file.path(intermediate, "lmsex.Rds")
+if (file.exists(sexfile)) {
+  lmres[[var]] <- readRDS(sexfile)
+} else {
+  lmres[[var]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xw %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var="Sex", covars=c("Age", "Cohort", "subtypeA"), test="LRT", family="gaussian"), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+  lmres[[var]] <- lapply(lmres[[var]], function(x) x %>% left_join(Proteins, by=c(Protein="id", "exp")) %>% relocate(c("PG.Genes"), .after="Protein"))
+  saveRDS(lmres[[var]], file=sexfile)
+}
+sel <- lapply(lmres[[var]], function(tab) tab %>% filter(variable=="SexMale", p.lr<=pcutoff) %>% arrange(p.lr) %>% pull(protein_type_id))
+```
+
+```{r sexv0, fig.cap="Proteins with significant association to sex at v0.", fig.width=12, fig.height=12}
+v <- "v0"
+Xw %>% filter(protein_type_id %in% sel[[v]]) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=Sex, y=!!as.symbol(v), color=Subtype, shape=Cohort)) + geom_quasirandom() + scale_shape_manual(values=c(3,16)) + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+```{r sexv1, fig.cap="Proteins with significant association to sex at v1.", fig.height=12, fig.width=12}
+v <- "v1"
+Xw %>% filter(protein_type_id %in% sel[[v]]) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=Sex, y=!!as.symbol(v), color=Subtype, shape=Cohort)) + geom_quasirandom() + scale_shape_manual(values=c(3,16)) + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+```{r sexv2, fig.cap="Proteins with significant association to sex at v2.", fig.width=12, fig.height=12}
+v <- "v2"
+Xw %>% filter(protein_type_id %in% sel[[v]]) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=Sex, y=!!as.symbol(v), color=Subtype, shape=Cohort)) + geom_quasirandom() + scale_shape_manual(values=c(3,16)) + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+\FloatBarrier
+
+### Sex differences within IAVI
+
+Within the IAVI cohort compare sex, using linear regression and the following model;
+
+`protein ~ sex`
+
+
+```{r}
+var <- "IAVIsex"
+sexfile <- file.path(intermediate, "lmIAVIsex.Rds")
+if (file.exists(sexfile)) {
+  lmres[[var]] <- readRDS(sexfile)
+} else {
+  lmres[[var]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xw %>% filter(Cohort=="IAVI") %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var="Sex", covars=c(), test="t", family="gaussian"), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+  lmres[[var]] <- lapply(lmres[[var]], function(x) x %>% left_join(Proteins, by=c(Protein="id", "exp")) %>% relocate(c("PG.Genes"), .after="Protein"))
+  saveRDS(lmres[[var]], file=sexfile)
+}
+openxlsx::write.xlsx(lmres[[var]], file=file.path(intermediate, "lm_IAVIsex.xlsx"))
+sel <- lapply(lmres[[var]], function(tab) tab %>% filter(variable=="SexMale", p<=pcutoff) %>% arrange(p) %>% pull(protein_type_id))
+```
+
+```{r IAVIsexv0, fig.cap="IAVI. Proteins with significant association to sex at v0.", fig.width=12, fig.height=12}
+v <- "v0"
+Xw %>% filter(Cohort=="IAVI", protein_type_id %in% sel[[v]]) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=Sex, y=!!as.symbol(v))) + geom_quasirandom() + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+```{r IAVIsexv1, fig.cap="IAVI. Proteins with significant association to sex at v1.", fig.height=12, fig.width=12}
+v <- "v1"
+Xw %>% filter(Cohort=="IAVI", protein_type_id %in% sel[[v]]) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=Sex, y=!!as.symbol(v))) + geom_quasirandom() + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+```{r IAVIsexv2, fig.cap="IAVI. Proteins with significant association to sex at v2.", fig.width=12, fig.height=12}
+v <- "v2"
+Xw %>% filter(Cohort=="IAVI", protein_type_id %in% sel[[v]]) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=Sex, y=!!as.symbol(v))) + geom_quasirandom() + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+\FloatBarrier
+
+Is the change in protein value between visits different in males and females? This is studied in the IAVI cohort using a mixed-effects model as follows;
+
+`lnI ~ sex + visit + visit:sex + PC1 + PC2 + (1|subjid)`
+
+
+```{r sexPCA}
+protsexPCAfile<-file.path(intermediate, "protsexPCA220310.Rds") 
+if (file.exists(protsexPCAfile)) {
+  ressex <- readRDS(protsexPCAfile)
+} else {
+  library(multcomp)
+  sexvisitmodel <- function(df) {
+    f <- lmer(logIntensity~visit*Sex+PC1+PC2+(1|subjid), data=df, REML=FALSE)
+    cnt <- as.matrix(coef(f)[[1]][1:6,])
+    cnt[TRUE] <- 0
+    rownames(cnt) <- c("(v2-v0)*Male", "(v1-v0)*Male", "(v2-v1)*Male", "Male|v0", "Male|v1", "Male|v2")
+    cnt[, "visitv1:SexMale"] <- c(0,1,-0.5,0,1,0)
+    cnt[, "visitv2:SexMale"] <- c(1,0,0.5,0,0,1)
+    cnt[,"SexMale"] <- c(0,0,0,1,1,1)
+    g <- glht(f, linfct = cnt)
+    ts <- summary(g, test=adjusted("none"))$test
+    data.frame(do.call("cbind", ts[c("coefficients", "sigma", "tstat", "pvalues")])) %>% rownames_to_column("contrast")
+  }
+  ressex <- X %>% filter(proteingroup!="excluded", Cohort=="IAVI") %>% group_by(Protein, exp) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% summarize(fdetect=unique(m), sexvisitmodel(cur_data()))
+  
+  saveRDS(ressex, file=protsexPCAfile)
+}
+var="sexPCAdiff"
+lmres$sexPCAdiff <- ressex %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+keys <- lmres$sexPCAdiff %>% group_by(contrast) %>% group_keys()
+spl <- lmres$sexPCAdiff %>% group_by(contrast) %>% arrange(pvalues) %>% group_split()
+names(spl) <- sub("[*]", "", keys$contrast)
+writexl::write_xlsx(spl[grep("^[(]v", names(spl))], path=file.path(intermediate, "lm_IAVIsexvisitdiff.xlsx"))
+```
+
+```{r IAVIsexv10, fig.cap="IAVI. Proteins with v2 - v0 significant difference between males and females.", fig.width=12, fig.height=12}
+sel$v10 <- lmres[[var]] %>% filter(contrast=="(v1-v0)*Male", pvalues<=pcutoff) %>% arrange(pvalues) %>% pull(protein_type_id)
+v <- "v10"
+X %>% filter(Cohort=="IAVI", protein_type_id %in% sel[[v]], visit%in% c("v0", "v1")) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=visit, y=logIntensity, color=Sex)) + geom_quasirandom() + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+```{r IAVIsexv20, fig.cap="IAVI. Proteins with v2 - v0 significant difference between males and females.", fig.width=12, fig.height=12}
+sel$v20 <- lmres[[var]] %>% filter(contrast=="(v2-v0)*Male", pvalues<=pcutoff) %>% arrange(pvalues) %>% pull(protein_type_id)
+v <- "v20"
+X %>% filter(Cohort=="IAVI", protein_type_id %in% sel[[v]], visit%in% c("v0", "v2")) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=visit, y=logIntensity, color=Sex)) + geom_quasirandom() + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+```{r IAVIsexv21, fig.cap="IAVI. Proteins with v2 - v1 significant difference between males and females.", fig.width=12, fig.height=12}
+sel$v21 <- lmres[[var]] %>% filter(contrast=="(v2-v1)*Male", pvalues<=pcutoff) %>% arrange(pvalues) %>% pull(protein_type_id)
+v <- "v21"
+X %>% filter(Cohort=="IAVI", protein_type_id %in% sel[[v]], visit%in% c("v1", "v2")) %>% mutate(protein_type_id=factor(protein_type_id, levels=sel[[v]])) %>% ggplot(aes(x=visit, y=logIntensity, color=Sex)) + geom_quasirandom() + facet_wrap(~protein_type_id, scales="free_y") + theme_bw()
+```
+
+\FloatBarrier

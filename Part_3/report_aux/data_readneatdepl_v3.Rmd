@@ -1,0 +1,167 @@
+<!-- Load and use data from neat (old spectronaut file) and depl (old spectronaut file) -->
+
+```{r files}
+datadir <- "../../data"
+## Files generated using Mun-Gwan's scipt
+files <- list(vload=file.path(datadir, "s1-viral_load.v01.RData"),
+              clinc=file.path(datadir, "s1-clinic.v01.RData"),
+              neat=file.path(datadir, "s1_neat_Spectronaut.v01.RData"),
+              depl=file.path(datadir, "s1_depl_Spectronaut.v01.RData"),
+              proc=file.path(datadir, "s1_Spectronaut.v02.RData")
+              )
+```
+
+```{r vload}
+##vload
+load(files$vload)
+```
+
+```{r clinc}
+##clinc
+load(files$clinc)
+```
+
+```{r Cohortfix}
+clinc <- clinc %>% mutate(Cohort=c(Durban="Durban", Kigali="IAVI", Kilifi="IAVI", Lusaka="IAVI")[Site]) %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) 
+```
+
+```{r ARTstart, warning=FALSE}
+art <- read_excel(file.path(datadir, "raw_internal", "2021-04-23", "Protocol_C_with_ART_start_date_for_JN_23042021.xlsx")) %>% filter(!is.na(pid)) %>% mutate(subjid=as.character(pid))
+startart <- art %>% dplyr::select(subjid, artstart_date) %>% distinct() %>% filter(subjid %in% clinc$subjid) %>% mutate(artstart_date=as.Date(artstart_date))
+artdurban <- read_excel(file.path(datadir, "raw_internal", "Durban_ART_startdate.xlsx")) %>% mutate(subjid=gsub(".*-", "", PID))
+
+startart <- startart %>% full_join(artdurban %>% mutate(artstart_date=as.Date(as.numeric(`Treatment start date`), origin="1899-12-30")) %>% dplyr::select(subjid, artstart_date, revised_edi))
+clinc <- clinc %>% left_join(startart, by="subjid")
+```
+
+
+```{r VLCD48, warning=FALSE}
+##HLA, KIR, VL
+IAVI <- sapply(c("vload_cd4_cd8", "HLA", "KIR"), function(sheet) read_excel(file.path(datadir, "raw_internal", "IAVI_CD4_VL_HLA_KIR.xlsx"), sheet=sheet))
+Durban <- sapply(c("CD4_CD8", "HLA", "KIR", "VL setpoint"), function(sheet) read_excel(file.path(datadir, "raw_internal", "Durban_CD4_VL_HLA_KIR.xlsx"), sheet=sheet))
+vload <- IAVI$vload_cd4_cd8 %>% mutate(subjid=sprintf("%03d", pid))
+
+vload2 <- read_excel(file.path(datadir, "raw_internal", "CD4_CD8_Proteomics_08062021.xlsx")) %>% group_by(pid) %>% fill(artstartdate, .direction="updown") %>% ungroup() %>% mutate(ARTstatus=ifelse(!is.na(artstartdate), ifelse(grepl("[Uu]nknown", artstartdate), "Unknown", ifelse(grepl("not treated", artstartdate), "Not treated", "ART")), NA), artstart_date=as.Date(as.numeric(artstartdate), origin="1899-12-30")) %>% filter(!is.na(cd4cells)|!is.na(cd8cells)|!is.na(cd4percent)|!is.na(cd8percent))
+vload <- vload %>% mutate(vl1=TRUE) %>% full_join(vload2 %>% mutate(visittime=visitdate, visitdate=as.Date(visittime), vl2=TRUE))
+```
+
+```{r loadneat}
+load(files$neat)
+## Raw data before imputation
+neat_raw <- spct %>%
+  rename(logIntensity0=LogIntensities) %>% 
+  mutate(exp="neat", protein_type_id= paste(protein_id, "Neat", sep = "-"))
+# %>% mutate(Discrete=Protein %in% colnames(spct_disc), Imputed=Protein %in% colnames(spct_norm), Excluded=!(Protein %in% colnames(spct_proc)))
+```
+
+```{r neatproteins}
+Proteins <- proteins %>% mutate(exp="neat", protein_type_id= paste(id, "Neat", sep = "-"))
+```
+
+```{r neatsampleinfo, warning=FALSE}
+neatsampleinfo <- injtn %>% dplyr::select(sampleid, run_id, subjid, visit_nr)
+
+neatinfo <- read_excel(file.path(datadir, "raw_internal/2021-11-25/NeatPlasma_MS_run_conditions.xlsx")) %>% mutate(FileName=sub("uL", "ul", FileName))
+neatsampleinfo <- neatsampleinfo %>% left_join(neatinfo, by=c(run_id="FileName"))
+
+
+#neat_raw <- neat_raw %>% left_join(neatsampleinfo, by="sampleid")
+#neat <- neat %>% left_join(neatinfo, by=c(sampleid="FileName"))
+```
+
+```{r loaddepl}
+load(files$depl)
+## Raw data before imputation
+depl_raw <- spct %>%
+  rename(logIntensity0=LogIntensities) %>% mutate(exp="depl", protein_type_id= paste(protein_id, "Depleted", sep = "-"))
+```
+
+```{r deplproteins}
+Proteins <- Proteins %>% full_join(proteins %>% mutate(exp="depl", protein_type_id= paste(id, "Depleted", sep = "-")))
+```
+
+```{r deplsampleinfo, warning=FALSE}
+deplsampleinfo <- distinct(depl_raw, sampleid) %>% 
+  separate(sampleid, c("subjid", "visit_nr"), sep = "-") %>% 
+  mutate(visit_nr = as.integer(str_remove(visit_nr, "^T")))
+fspct0 <- file.path(datadir, "raw_internal/2021-06-28/protein_dep_20210609.txt.gz")
+# Read the Spectronaut file
+## From Mun-Gwan's old gen-s1_depl-Spectronaut.v01.R
+## To get id2
+deplsampleinfo0 <- read_csv(
+  fspct0,
+  col_types = cols(
+    RUN = col_double(),
+    Protein = col_character(),
+    LogIntensities = col_double(),
+    originalRUN = col_character(),
+    GROUP = col_character(),
+    SUBJECT = col_character(),
+    TotalGroupMeasurements = col_double(),
+    NumMeasuredFeature = col_double(),
+    MissingPercentage = col_double(),
+    more50missing = col_logical(),
+    NumImputedFeature = col_double()
+  )
+) %>% 
+  rename("subjid" = "SUBJECT", "visit_nr" = "GROUP")  %>%
+  mutate(subjid=str_pad(subjid, 3, pad="0")) %>%
+  # create `sampleid` uniting `subjid` and `visit_nr`
+  unite("sampleid", c("subjid", "visit_nr"), sep = "-", remove = FALSE) %>% 
+  mutate(visit_nr = as.integer(str_remove(visit_nr, "^T"))) %>%
+  select(sampleid, subjid, visit_nr, originalRUN) %>% 
+  distinct() %>% 
+  separate(originalRUN, c("date", "id2", "faims", "dia", "90minNLG", "r1"),
+           sep = "_") %>% 
+  mutate(date = as.Date(date, "%y%m%d"))
+deplsampleinfo <- deplsampleinfo %>% left_join(deplsampleinfo0)
+```
+
+```{r}
+deplinfo <- read_excel(file.path(datadir, "raw_internal/2021-11-25/Copy of Depleted_plasma_samples_DIAresultSummary_plus depletionbatch_19Nov21.xlsx"), skip=1)%>% filter(!is.na(`#MassSpecID`)) %>% rename(Replicate=`#MassSpecID`)
+deplinfo <- deplinfo %>% mutate(id2=sub("_.*", "", sub("[0-9]*_", "", FileName)))
+deplsampleinfo <- deplsampleinfo %>% left_join(deplinfo)
+#depl_raw <- depl_raw %>% left_join(deplsampleinfo)
+
+sampleinfo <- full_join(neatsampleinfo %>% mutate(exp="neat"), deplsampleinfo %>% mutate(exp="depl"), by=c("sampleid", "subjid", "visit_nr", "exp"), suffix=c(".neat", ".depl"))
+```
+
+```{r impandnorm}
+load(file.path(datadir, "s1_Spectronaut.v02.RData"))
+Proteins <- proteins %>% mutate(Excluded=!protein_type_id %in% colnames(spct_proc)) %>% left_join(Proteins) %>% mutate(exp=substr(tolower(prep_type),1, 4), proteingroup=c("normalized", "excluded")[1 + 1*Excluded]) 
+spct_proc <- spct_proc %>% 
+    as_tibble(rownames = "sampleid") %>%
+    pivot_longer(all_of(colnames(spct_proc)), "protein_type_id", values_to = "logIntensity")
+```
+
+
+
+```{r data}
+raw <- neat_raw %>% full_join(depl_raw)
+  
+sampleinfo <- sampleinfo %>%
+  left_join(clinc, by = "subjid") %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) %>% 
+  mutate(visit_nr = ordered(visit_nr, levels = c("0", "1", "2"))) %>%
+  mutate(visit=factor(paste0("v", visit_nr), ordered=FALSE),
+                  visitnr=as.numeric(as.character(visit_nr)))
+
+rm(neat_raw) 
+rm(depl_raw)
+
+spct_proc <- spct_proc %>% mutate(protein_id=gsub("-.*", "", protein_type_id), prep_type=gsub(".*-", "", protein_type_id), exp=substr(tolower(prep_type), 1, 4)) %>% left_join(Proteins %>% select(protein_type_id, Excluded, proteingroup))
+
+X <- spct_proc %>% left_join(raw) %>% left_join(sampleinfo)
+```
+
+
+```{r prots, dependson="data"}
+table(Proteins$exp) %>% kable(caption="Number of proteins from each of the experiments.") %>% kable_styling(full_width = FALSE)
+prots <- with(Proteins, split(Protein, exp))
+protoverlap <- intersect(prots$neat, prots$depl) 
+
+protgroups <- Proteins %>% group_by(Protein) %>% summarize(neat=sum(exp=="neat"), neatgr=if (any(exp=="neat")) proteingroup[exp=="neat"] else NA, depl=sum(exp=="depl"), deplgr=if (any(exp=="depl")) proteingroup[exp=="depl"] else NA)
+table(paste("neat", protgroups$neatgr), paste("depl", protgroups$deplgr))[c(1,3,2), c(1,3,2)]  %>% kable(caption="Number of proteins from each of the experiments.") %>% kable_styling(full_width = FALSE)
+```
+

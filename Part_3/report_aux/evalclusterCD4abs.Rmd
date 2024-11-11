@@ -1,0 +1,71 @@
+<!-- CD4 count -->
+<!-- CD4abs -->
+<!-- cd4_abs -->
+<!-- cl652w -->
+<!-- 6-52w -->
+
+
+```{r CD4abseu6-52w, fig.show="hold", fig.height=7, fig.width=12, fig.cap="CD4 count clusters based on time period 6-52w, computed using complete linkage hierarchical clustering based on Euclidean distance."}
+CVsplines[["CD4abs"]]$spline %>% left_join(euclust[["CD4abs"]]$`6-52w`$cl) %>% filter(!is.na(cl), day<=36*365.25/12) %>% ggplot(aes(x=day, y=cd4_abs, group=subjid, color=paste("Cluster ", cl))) + geom_vline(xintercept = 30) + geom_vline(xintercept=364) + geom_line() + theme_bw() + scale_color_discrete("") + scale_x_continuous(trans=scales::boxcox_trans(CVsplines[["CD4abs"]]$lambda$x, 1)) + scale_y_continuous(trans=scales::boxcox_trans(CVsplines[["CD4abs"]]$lambda$y)) 
+```
+
+```{r CD4abspvlust, fig.cap="CD4 count. Multiscale bootstrap resampling. Clusters with alpha>=0.90 are shown to the right", fig.show="hold", fig.height=7, fig.width=7, out.width="50%"}
+CD4abscl652w <- Eucluster(CVsplines[["CD4abs"]]$splw, CVsplines[["CD4abs"]]$spline, CVsplines[["CD4abs"]]$lambda, timewindows$`6-52w`, "6-52w", time="day", value="cd4_abs", pv=TRUE)
+plot(CD4abscl652w$pvc)
+plot(CD4abscl652w$pvpl)
+```
+
+
+```{r CD4abseu6-52wheatmap, fig.show="hold", fig.height=7, fig.width=12, fig.cap="CD4 count clusters based on time period 6-52w, computed using complete linkage hierarchical clustering based on Euclidean distance."}
+NY <- c('Fever', 'Headache', 'Nightsweats', 'Myalgia', 'Fatigue', 'Skinrash', 'Oralulcers', 'Pharyngitis', 'Lymphadenopathy', 'Diarrhea', 'Anorexia')
+
+clname <- c("cluster")
+names(clname) <- "CD4abscl652w"
+
+ph <- clinc %>% left_join(euclust[["CD4abs"]]$`6-52w`$cl) %>% mutate(across(c(ARS, all_of(NY)), ~factor(., levels=c("No", "Yes"))), cluster=factor(cl), across(c(Site, Sex, Risk_grp, Subtype), ~factor(.))) %>% rename(clname) %>% dplyr::select(subjid, ARS, all_of(c(NY, names(clname))), Site, Risk_grp, Sex, Age, Subtype)
+
+Xw <- Xw %>% left_join(ph %>% dplyr::select(subjid, all_of("CD4abscl652w")))
+ph <- ph %>% column_to_rownames("subjid")
+
+bwNY=c("No"="gray", "Yes"="black")
+annot_cols <- list(Risk_grp=c(MSM="black", DC="orange", HET="cornflowerblue"))
+for (nm in NY) annot_cols[[nm]] <- bwNY
+z <- CVsplines[["CD4abs"]]$splw %>% dplyr::filter(day>=30, day<=365.25) %>% dplyr::select(which(colMeans(is.na(.))==0))
+pheatmap(t(z[, -1]), cluster_cols = FALSE, annotation_row = ph[colnames(z)[-1],], annotation_colors =annot_cols) 
+```
+
+\FloatBarrier
+
+```{r CD4abscl652w}
+tab <- tab1(names(ph)[!grepl("^cl", names(ph))], df=ph %>% filter(!is.na(all_of("CD4abscl652w"))), y="CD4abscl652w")
+options(knitr.kable.NA = '')
+tab %>% mutate(variable=cell_spec(variable, bold=!is.na(test)), p=ifelse(!is.na(p), sprintf("%.3g", p), p)) %>% dplyr::select(-var) %>% kable(escape=FALSE, row.names = FALSE, caption="Summary of associations between clinical parameters and CD4 count clusters calculated using data from 6-52w and complete linkage hierarchical clustering based on Euclidean distance.") %>% kable_styling() 
+```
+
+### Linear regression, CD4 count 6-52w clusters
+
+Linear regressions are performed separately for each time point (or difference) and protein, to assess the association between protein value and CD4 count 6-52w clusters. Age is included as a covariate in the models.
+
+```{r CD4abslmcl652w}
+xvar <- "CD4abscl652w"
+lmres[[xvar]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xw %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var=xvar), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+lmres[[xvar]] <- lapply(lmres[[xvar]], function(x) x %>% left_join(proteins, by=c(Protein="id")) %>% relocate(c("UniProt", "hgnc_symbol"), .after="Protein")) 
+openxlsx::write.xlsx(lmres[[xvar]], file="CD4abs_lm_cl652wage.xlsx")
+openxlsx::write.xlsx(lapply(lmres[[xvar]], function(z) z %>% filter(grepl(xvar, variable)) %>% arrange(p)), file="CD4abs_lm_cl652w.xlsx")
+```
+
+\FloatBarrier
+
+```{r CD4abscl652wQQunif, fig.cap="QQplots of CD4abs 6-52w cluster p-values. Observed p-values vs expected p-values."}
+pl <- do.call("rbind", lmres[[xvar]]) %>% filter(grepl(xvar, variable)) %>% mutate(visit=factor(visit, names(lmres[[xvar]]))) %>% group_by(visit) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p))) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_wrap(~visit) + theme_bw()
+plot(pl)
+```
+
+\FloatBarrier
+
+```{r CD4abscl652wlmtabs, results="asis"}
+for (v in names(lmres[[xvar]])) {
+  print(lmres[[xvar]][[v]] %>% filter(grepl(xvar, variable)) %>% arrange(p) %>% head() %>% dplyr::select(Protein, hgnc_symbol, Estimate, p) %>% rename(beta=Estimate) %>% kable(caption=sprintf("Top associations between protein value at visit %s and CD4 count clusters based on 6-52w (complete linkage, Euclidean).", sapply(strsplit(v, ""), function(z) paste(z[-1], collapse=" - "))), label=v))
+} 
+```
+

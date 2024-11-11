@@ -1,0 +1,2585 @@
+---
+title: "Quantifying the dynamics of the blood plasma proteome during acute HIV-1 infection"
+subtitle: "Spectronaut, neat and depleted"
+date: "`r Sys.setlocale('LC_TIME', 'C');format(Sys.Date(),format='%B %e, %Y')`"
+output:
+  bookdown::pdf_document2:
+    number_sections: true
+    toc: false
+    includes: 
+      in_header: header.tex
+    keep_tex: true  
+  bookdown::word_document2:
+  bookdown::html_document2:
+    toc: TRUE  
+---
+  
+
+```{r setup, include=FALSE}
+#library(GO.db)
+library(tidyverse)
+library(readxl)
+library(writexl)
+library(pheatmap)
+library(ggplot2)
+library(reshape2)
+library(ggbeeswarm)
+library(kableExtra)
+library(lmerTest)
+library(emmeans)
+library(ggpubr)
+library(ggrepel)
+# library(ropls)
+library(pROC)
+library(clusterProfiler)
+# library(ggnewscale)
+library(Rtsne)
+library(umap)
+library(dplyr)
+library(ggpirate)
+
+library(AHIprot) ##ML functions
+ 
+knitr::opts_chunk$set(echo = FALSE, cache=TRUE, message=FALSE, warning=FALSE)
+options(knitr.kable.NA = '')
+#datadir <- "~/Support/4964/proteomics2021/data"
+#datadir2 <- "~/Support/4964/5800/data"
+datadir <- "../data"
+dataneat <- "../data/intermediate/neat"
+datadepl <- "../data/intermediate/depl"
+intermediate <- "../data/intermediate"
+resultdir <- "../results"
+CV <- CVsplines <- list()
+euclust <- list()
+dir.create(intermediate, showWarnings = FALSE)
+dir.create(resultdir, showWarnings = FALSE)
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+verbose <- 0
+```
+
+```{r projinfo}
+projinfo <- c("Issue number" = "5800", 
+              "NBIS expert" = "Eva Freyhult <eva.freyhult@nbis.se>",
+              ##              "Request by" = "Joakim Esbjörnsson <joakim.esbjornsson@med.lu.se>",
+              PI = "Joakim Esbjörnsson <joakim.esbjornsson@med.lu.se>",
+              Organization = "Lund Univeristy")
+kable(projinfo, vline="", booktabs=TRUE, col.names=NULL) %>% kable_styling("striped", latex_options=c("striped", "HOLD_position"), position="center")
+```
+
+```{r header}
+if (!file.exists("../report_aux/header.tex")) {
+  header <- readLines("../report_aux/header.tex")
+  l <- grep("\\newcommand{\\noIssue}", header, fixed=TRUE)
+  
+  header[l] <- sprintf("\\newcommand{\\noIssue}{\\#%s}", projinfo["Issue number"])
+  writeLines(header, "header.tex")
+}
+```
+
+```{r tab1, eval=TRUE}
+tab1 <- function(vars, df, y, test=NA) { 
+  test <- rep(test, len=length(vars))
+  names(test) <- vars
+  tab <- do.call("rbind", lapply(vars, function(v) {
+    #print(v)
+    if (all(df[[v]] %in% c(0:1, NA))) {
+      df[[v]] <- factor(df[[v]], levels=0:1)
+    }
+    # res <- data.frame(var = v)
+    if (is.factor(df[[v]])) {
+      ##df[[v]] <- factor(df[[v]])
+      l <- levels(df[[v]])
+      res <- sapply(split(df[[v]], df[[y]]), function(x) sapply(l, function(ll) sprintf("%i (%.1f)", sum(x==ll, na.rm=TRUE), 100*mean(x==ll, na.rm=TRUE))))
+      if (length(l)==2) {
+        res <- data.frame(var=v, variable=sprintf("%s = %s (%%)", v, l[2]), res[2,,drop=FALSE], check.names=FALSE)
+      } else {
+        res <- data.frame(var=v, variable=c(sprintf("%s (%%)", v), sprintf("  %s", l)), rbind("", res), check.names=FALSE)
+      }
+      tab <- table(df[[v]], df[[y]])
+      if (!is.na(test[v]) && test[v]=="none") {
+        res$test="none"
+        res$p = NA
+      } else if ((!is.na(test[v]) && test[v]=="Fisher") || (is.na(test[v]) & min(tab)<5)) {
+        res$test <- "Fisher"
+        res$p=fisher.test(tab)$p.value
+      } else {
+        res$test="Chisq"
+        res$p=chisq.test(tab)$p.value
+      }
+      if (nrow(res)>1)
+        res[2:nrow(res), c("test", "p")] <- NA
+    } else {
+      res <- data.frame(var=v, variable = sprintf("%s (mean(sd))", v), t(sapply(split(df[[v]], df[[y]]), function(x) sprintf("%.2f (%.2f)", mean(x, na.rm=TRUE), sd(x, na.rm=TRUE)))), check.names=FALSE)
+      if (!is.na(test[v]) && test[v]=="none") {
+        res$test="none"
+        res$p = NA
+      } else if ((!is.na(test[v]) && test[v]=="Mann-Whitney") || (is.na(test[v]) && (nrow(df)>5000 || shapiro.test(df[[v]])$p.value<0.05))) {
+        res$test="Mann-Whitney"
+        res$p=wilcox.test(df[[v]]~df[[y]])$p.value
+      } else {
+        res$test="t-test"
+        res$p=t.test(df[[v]]~df[[y]])$p.value
+      }
+    }
+    res
+  }))
+  n <- data.frame(var = "n", variable="n", t(sapply(levels(df[[y]]), function(v) sum(df[[y]]==v))), test="none", p=NA, stringsAsFactors = FALSE, check.names = FALSE)
+  tab <- rbind(n, tab) 
+  return(tab)
+}
+```
+
+
+
+
+# Neat and depleted proteomics data
+
+```{r getdata, child="../report_aux/data_readneatdepl_v4.Rmd"}
+
+```
+
+The number of proteins analyzed in neat; `r length(prots$neat)` and in depleted; `r length(prots$depl)`, of these `r length(protoverlap)` overlap.
+
+<!-- One sample is unknown (no known clinical information), this is v1 for patient 194532. This sample will be excluded. -->
+<!-- Already removed by Mun-Gwan? -->
+
+<!-- ```{r, dependson="data"} -->
+<!-- X <- X %>% filter(!is.na(Cohort)) -->
+<!-- ``` -->
+
+```{r, dependson="data"}
+protoverlap0 <- protgroups %>% filter(neatgr!="excluded", deplgr!="excluded") %>% pull("id")
+```
+
+
+```{r datatoJamirah, dependson="data"}
+X <- X %>% mutate(Protein=protein_id)
+##To Jamirah
+write_csv(X %>% pivot_wider(id_cols=c("Protein", "subjid", "visit_nr"), names_from=exp, values_from = c("logIntensity", "logIntensity0")) %>% arrange(Protein, subjid), file=file.path(intermediate, "logI_all.csv"))
+```
+
+<!-- Investigate correlation between neat and depleted  -->
+```{r, child="../report_aux/data_neatdeploverlap_v0.Rmd", eval=FALSE}
+
+```
+
+
+\FloatBarrier
+
+ <!-- Injection order -->
+
+```{r, child="../report_aux/data_inj_v0.Rmd", eval=verbose>2}
+
+```
+
+\FloatBarrier
+
+<!-- ## Proteins with many missing -->
+<!-- All these filterings of proteins are done by Mun-Gwan -->
+
+```{r}
+Nprot <- Proteins %>% dplyr::select(exp, Protein, proteingroup) %>% distinct() %>% group_by(exp, proteingroup) %>% summarise(n=n())
+#list(neat=readRDS(file.path(dataneat, "Nprot.Rds")),
+#              depl=readRDS(file.path(datadepl, "Nprot.Rds")))
+```
+
+```{r uniprot}
+Proteins <- Proteins %>% mutate(uniprot1=gsub("[-;].*", "", Protein))
+```
+
+
+
+<!-- Proteins with many missing values are not likely to give much information. Proteins with 80% or more missing values (`r Nprot %>% filter(exp=="neat", proteingroup=="excluded") %>% pull("n")` neat and `r Nprot %>% filter(exp=="depl", proteingroup=="excluded") %>% pull("n")` depleted proteins) will be completely excluded from all analyses. -->
+
+<!-- Proteins with 20% or less missing values (`r Nprot %>% filter(exp=="neat", proteingroup=="normalized") %>% pull("n")` neat and `r Nprot %>% filter(exp=="depl", proteingroup=="normalized") %>% pull("n")` depleted proteins) will be imputed, normalized and included in all analyses.  -->
+
+
+
+<!-- **Change 20/10 2021** All proteins with < 80% missing values will be included in the normalization that will be done for IAVI and Durban together. -->
+
+
+
+```{r lmmod}
+##Run linear model
+lmmod <- function(df, var="ARS", y="logIntensity", covars="Age", test="t", family=ifelse(exists("Discrete", df), ifelse(all(df$Discrete), "binomial", "gaussian"), "gaussian")) {
+  if (family=="gaussian") {
+    f <- lm(as.formula(sprintf("%s ~ %s", y, paste(c(var, covars), collapse=" + "))), data=df)
+  } else {
+    f <- glm(as.formula(sprintf("%s ~ %s", y, paste(c(var, covars), collapse=" + "))), family=family, data=df)
+  }
+  if (test=="F") {
+    data.frame(p.global=anova(f)[var, "Pr(>F)"], pairs(emmeans(f, var), reverse=TRUE))
+  } else if (test=="t") {
+    data.frame(coef(summary(f))[-1,,drop=FALSE]) %>% rownames_to_column("variable") %>% rename_with(function(x) "p", starts_with("P"))
+  } else if (test=="LRT") {
+    if (family=="gaussian") {
+      f0 <- lm(as.formula(sprintf("%s ~ %s", y, paste(covars, collapse=" + "))), data=df)
+    } else {
+      f0 <- glm(as.formula(sprintf("%s ~ %s", y, paste(covars, collapse=" + "))), family=family, data=df)
+    }
+    p.lr <- anova(f, f0, test="LRT")[2,5]
+    data.frame(coef(summary(f))[-1,]) %>% rownames_to_column("variable") %>% rename_with(function(x) "p", starts_with("P")) %>% mutate(p.lr=p.lr)
+  }
+}
+
+## Run linear mixed-effects model
+lmermod <- function(df, var="visit", y="logIntensity", covars=c("(1|subjid)"), test="F", family=ifelse(exists("Discrete", df)&all(df$Discrete), "binomial", "gaussian")) {
+  if (family=="gaussian") {
+    f <- lmer(as.formula(sprintf("%s ~ %s", y, paste(c(var, covars), collapse=" + "))), data=df, REML=FALSE)
+    if (test=="F")
+      pglob <- anova(f)[var, "Pr(>F)"]
+    else {#LRT
+      f0 <- lmer(as.formula(sprintf("%s ~ %s", y, paste(c(covars), collapse=" + "))), data=df, REML=FALSE)
+      pglob <- anova(f, f0, test="lrt")[2, "Pr(>Chisq)"]
+    }
+  } else {
+    f <- glmer(as.formula(sprintf("%s ~ %s", y, paste(c(var, covars), collapse=" + "))), data=df, family=family)
+    f0 <- glmer(as.formula(sprintf("%s ~ %s", y, paste(c(covars), collapse=" + "))), data=df, family=family)
+    pglob <- anova(f, f0, test="lrt")[2, "Pr(>Chisq)"]
+  }
+  if (any(grepl(":", var))) {
+    var1 <- var[!grepl(":", var)]
+    stopifnot(length(var1)==1)
+    var2 <- setdiff(strsplit(var[grepl(":", var)], ":")[[1]], var1)#var[grepl(":", var)]
+    data.frame(p.global=pglob, pairs(emmeans(f, as.formula(sprintf("~%s|%s", var1, var2))), reverse=TRUE))
+  } else {
+    data.frame(p.global=pglob, pairs(emmeans(f, var), reverse=TRUE))
+  }
+}
+```
+
+<!-- Association with Edi -->
+```{r, child="../report_aux/assocEdi.Rmd", eval=verbose>2}
+
+```
+
+\FloatBarrier
+
+
+## Sample summary using PCA
+
+For both neat and depleted do the first two principal components show variation that can separate groups of samples that differ in terms of sample handling, cohort etc. These global differences can be biological or due to technincal aspects. In downstream analyses it is possible to adjust for PC1 and PC2.
+
+```{r svaARS, fig.cap="Find surrogate variable (using R-package sva) to remove artifacts in data (not explained by age, sex or ARS). Depleted data, IAVI, visit 2 before and after sva.", fig.show="hold", out.width="50%", warning=FALSE, eval=FALSE}
+library(sva) 
+##Find Surrogate variables in v2, IAVI, depl
+p <- Proteins %>% filter(exp=="depl", proteingroup=="normalized") %>% pull("Protein")
+d <- X %>% filter(exp=="depl", Cohort=="IAVI", visit=="v2", Protein%in% p) %>% pivot_wider(id_cols = c("Cohort", "Sex", "Age", "ARS", "subjid"), names_from = "Protein", values_from = "logIntensity") %>% filter(!is.na(ARS)) %>% column_to_rownames("subjid")
+mod <- model.matrix(~Sex+Age+ARS, data=d)
+mod0 <- model.matrix(~Sex+Age, data=d)
+n.sv = num.sv(t(d[, p]),mod,method="leek")
+svobj = sva(t(d[,p]),mod,mod0,n.sv=n.sv)
+
+pValues = f.pvalue(t(d[,p]),cbind(mod, svobj$sv),cbind(mod0, svobj$sv))
+qValues = p.adjust(pValues,method="BH")
+
+exp.p <- function(p) {
+  exp.p <- (rank(p, ties.method="first")+.5)/(length(p)+1) 
+}
+#data.frame(p=pValues, exp.p=exp.p(pValues)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p))) + geom_point() + geom_abline(slope = 1, intercept=0)
+
+#modcombat <- model.matrix(~1, d)
+#combat_d = ComBat(dat=t(d[, p]), batch=svobj$sv[,1], mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+dadj <- apply(d[, p], 2, function(y) {
+  f <- lm(y~svobj$sv)
+  f$residuals + f$coef[1]
+})
+
+pcs <- list(before=prcomp(d[, p], scale. = TRUE),
+            after=prcomp(dadj, scale. = TRUE))
+
+for (pc in pcs) {
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Subtype)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point())
+}
+```
+
+
+```{r svavisit, fig.cap="Find surrogate variable (using R-package sva) to remove artifacts in data (not explained by age, sex or visit). Depleted data, IAVI, all visits before and after sva.", fig.show="hold", out.width="50%", eval=FALSE, warning=FALSE}
+library(sva)
+##Find Surrogate variables in v2, IAVI, depl
+p <- Proteins %>% filter(exp=="depl", proteingroup=="normalized") %>% pull("Protein")
+d <- X %>% filter(exp=="depl", Cohort=="IAVI", Protein%in% p) %>% pivot_wider(id_cols = c("Cohort", "Sex", "Age", "ARS", "visit", "subjid"), names_from = "Protein", values_from = "logIntensity") %>% filter(!is.na(ARS)) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn")
+mod <- model.matrix(~Sex+Age+visit, data=d)
+mod0 <- model.matrix(~Sex+Age, data=d)
+n.sv = num.sv(t(d[, p]),mod,method="leek")
+svobj = sva(t(d[,p]),mod,mod0,n.sv=n.sv)
+
+pValues = f.pvalue(t(d[,p]),cbind(mod, svobj$sv),cbind(mod0, svobj$sv))
+qValues = p.adjust(pValues,method="BH")
+
+exp.p <- function(p) {
+  exp.p <- (rank(p, ties.method="first")+.5)/(length(p)+1) 
+}
+data.frame(p=pValues, exp.p=exp.p(pValues)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p))) + geom_point() + geom_abline(slope = 1, intercept=0)
+
+#modcombat <- model.matrix(~1, d)
+#combat_d = ComBat(dat=t(d[, p]), batch=svobj$sv[,1], mod=modcombat, par.prior=TRUE, prior.plots=FALSE)
+dadj <- apply(d[, p], 2, function(y) {
+  f <- lm(y~svobj$sv)
+  f$residuals + f$coef[1]
+})
+
+pcs <- list(before=prcomp(d[, p], scale. = TRUE),
+            after=prcomp(dadj, scale. = TRUE))
+
+for (pc in pcs) {
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Subtype)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point(aes(shape=ifelse(is.na(ARS), NA, paste0("ARS=",ARS)))) + scale_shape_manual("",values=c("ARS=Yes"=16,"ARS=No"=4, Male=21, Female=22), na.value=21) + ggtitle(v) + scale_color_manual(values=c(A1="tomato", A2D="orange", C="lightgreen", D="cyan", G="cornflowerblue", Male="blue", Female="Pink"), na.value="grey") + geom_point(aes(shape=Sex), size=3)) 
+}
+```
+
+
+```{r PCAneatall, fig.cap="PCA neat", fig.show="hold", out.width="33%"}
+Xvs <- list(d100 = pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", exp=="neat", fdetect==1), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn"),
+d90 =  pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", exp=="neat", fdetect>0.9), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn"),
+d0 = pivot_wider(X %>% filter(proteingroup=="normalized", exp=="neat"), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn"))
+
+pc <- lapply(Xvs, function(Xv) prcomp(Xv[, -(1:2)], scale. = TRUE))
+
+pcneat <- pc[["d90"]]
+for (nm in names(Xvs)) {
+  Xv <- Xvs[[nm]]
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc[[nm]]$sdev[1:4]^2 / sum(pc[[nm]]$sdev^2))
+PCsc <- pc[[nm]]$x %>% as_tibble(rownames="rn") %>% mutate(subjid=gsub("_.*", "", rn), visit=gsub(".*_", "", rn)) %>% left_join(clinc)
+plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=visit, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %i proteins", nm, ncol(Xv))))
+plot(ggplot(PCsc, aes(x=PC3,y=PC4, color=visit, shape=Cohort)) + xlab(pcnames[3]) + ylab(pcnames[4]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %i proteins", nm, ncol(Xv))))
+plot(ggplot(PCsc %>% left_join(neatsampleinfo %>% mutate(`Date processed`=as.character(`Date processed`))), aes(x=PC1,y=PC2, color=`Date processed`, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %i proteins", nm, ncol(Xv))))
+}
+```
+
+```{r}
+procdate <- read_xlsx(file.path(datadir, "raw_internal/DEP_processing_date.xlsx"))
+tmp <- X %>% left_join(procdate, by=c(PatientID.depl="PatientID"), suffix=c("", ".depl")) %>% mutate(`Date processed`=ifelse(is.na(`Date processed`), `Date processed.depl`, `Date processed`)) %>% dplyr::select(-`Date processed.depl`)
+```
+
+
+```{r PCAdeplall, fig.cap="PCA depl", fig.show="hold", out.width="33%"}
+Xvs <- list(d100 = pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", exp=="depl", fdetect==1), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn"),
+d90 =  pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", exp=="depl", fdetect>0.9), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn"),
+d0 = pivot_wider(X %>% filter(proteingroup=="normalized", exp=="depl"), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn"))
+
+pc <- lapply(Xvs, function(Xv) prcomp(Xv[, -(1:2)], scale. = TRUE))
+pcdepl <- pc[["d90"]]
+for (nm in names(Xvs)) {
+  Xv <- Xvs[[nm]]
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc[[nm]]$sdev[1:4]^2 / sum(pc[[nm]]$sdev^2))
+  PCsc <- pc[[nm]]$x %>% as_tibble(rownames="rn") %>% mutate(subjid=gsub("_.*", "", rn), visit=gsub(".*_", "", rn)) %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=visit, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %i proteins", nm, ncol(Xv))))
+  plot(ggplot(PCsc, aes(x=PC3,y=PC4, color=visit, shape=Cohort)) + xlab(pcnames[3]) + ylab(pcnames[4]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %i proteins", nm, ncol(Xv))))
+  plot(ggplot(PCsc %>% left_join(deplsampleinfo %>% mutate(`Date processed`=as.character(`Date processed`))), aes(x=PC1,y=PC2, color=`Date processed`, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %i proteins", nm, ncol(Xv))))
+}
+```
+
+```{r PCAcohort, fig.cap="PCA per cohort or both together. all plots are based on proteins with values for 90 percent or more of the samples.", fig.show="hold", out.width="33%"}
+Xvs <- lapply(list(neat="neat", depl="depl"), function(e) lapply(list(both=c("IAVI", "Durban"), IAVI="IAVI", Durban="Durban"), function(cht) pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", exp==e, fdetect>0.9, Cohort %in% cht), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn") ))
+pc <- lapply(Xvs, lapply, function(Xv) prcomp(Xv[, -(1:2)], scale. = TRUE))
+for (e in names(Xvs)) {
+  for (cht in names(Xvs[[e]])){
+    Xv <- Xvs[[e]][[cht]]
+    pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc[[e]][[cht]]$sdev[1:4]^2 / sum(pc[[e]][[cht]]$sdev^2))
+    PCsc <- pc[[e]][[cht]]$x %>% as_tibble(rownames="rn") %>% mutate(subjid=gsub("_.*", "", rn), visit=gsub(".*_", "", rn)) %>% left_join(clinc)
+    plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=visit, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %s, %i proteins", e, cht, ncol(Xv))))
+    plot(ggplot(PCsc, aes(x=PC3,y=PC4, color=visit, shape=Cohort)) + xlab(pcnames[3]) + ylab(pcnames[4]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %s, %i proteins", e, cht, ncol(Xv))))
+    plot(ggplot(PCsc %>% left_join(deplsampleinfo %>% mutate(`Date processed`=as.character(`Date processed`))), aes(x=PC1,y=PC2, color=`Date processed`, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(sprintf("%s, %s, %i proteins", e, cht, ncol(Xv))))
+  }
+}
+```
+
+
+
+```{r, eval=FALSE}
+Xv <- pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", fdetect>0.9), names_from="Protein", values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn")
+```
+
+
+```{r PCAoverlap, fig.cap="PCA based only on proteins present in both neat and depleted.", fig.show="hold", out.width="50%", eval=FALSE}
+##Proteins in both neat and depl
+pr <- with(Proteins %>% filter(Protein %in% protoverlap0), split(protein_type_id, exp))
+Xv <- pivot_wider(X %>% filter(Protein %in% protoverlap0), names_from=protein_type_id, values_from="logIntensity", id_cols=c("visit", "subjid")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn")
+##Remove rows with missing values (i.e. ony in neat or depl)
+Xv <- Xv[rowSums(is.na(Xv))==0, ]
+pcs <- lapply(pr, function(p) prcomp(Xv[, p], scale. = TRUE))
+for (nm in names(pcs)) {
+  pc <- pcs[[nm]]
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="rn") %>% mutate(subjid=gsub("_.*", "", rn), visit=gsub(".*_", "", rn)) %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=visit, shape=Cohort)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(nm))
+  plot(ggplot(PCsc, aes(x=PC3,y=PC4, color=visit, shape=Cohort)) + xlab(pcnames[3]) + ylab(pcnames[4]) + theme_bw() + geom_point() + scale_shape_manual(values=c(3, 19)) + ggtitle(nm))
+}
+```
+
+```{r sva, eval=FALSE}
+
+
+
+mod=model.matrix(~visit+Cohort+subjid, data=Xv[,1:2] %>% left_join(clinc))
+mod0=model.matrix(~1, data=Xv[,1:2])
+nsv=num.sv(t(Xv[, -(1:2)]), mod)
+svobj <- sva(t(Xv[, -(1:2)]), mod, mod0, n.sv=9)
+pValues = f.pvalue(t(Xv[, -(1:2)]),mod,mod0)
+modSv = cbind(mod,svobj$sv)
+mod0Sv = cbind(mod0,svobj$sv)
+pValuesSv = f.pvalue(edata,modSv,mod0Sv)
+
+
+```
+
+```{r}
+PC12 <- pcneat$x[, 1:2] %>% as_tibble(rownames="rn") %>% mutate(subjid=gsub("_.*", "", rn), visit=gsub(".*_", "", rn), exp="neat") %>% dplyr::select(-rn) %>% full_join(
+  pcdepl$x[, 1:2] %>% as_tibble(rownames="rn") %>% mutate(subjid=gsub("_.*", "", rn), visit=gsub(".*_", "", rn), exp="depl") %>% dplyr::select(-rn)
+)
+```
+
+
+\FloatBarrier
+
+
+
+
+
+# Biological questions
+
+## Difference between visits
+
+### Linear mixed effects model
+ 
+Association of each protein with visit number was tested using a linear mixed model with a random intercept for each of the patients. The visit number is treated as a categorical variable.
+
+For discretized proteins values, logistic regression will be used instead of linear.
+
+A global ANOVA (analysis of variance) test is adopted to detect the proteins that are changed between visits. For the significant proteins post hoc tests are performed to figure out where the protein level change (between visits 0 an 1, 0 ad 2 or 1 and 2).
+
+Multiple testing correction according to Benjamini-Hochberg's FDR (false discovery rate) method is applied and the significance treshold is set to 5% FDR. 
+
+As an alternative to B-H FDR a fixed p-value cutoff will be used (in order to use the same cutoff for all tests, regardless of cohort, neat/depleted). The significance threshold will be set to 0.005.
+
+Based on one cohorts at the same time, the following model is used;
+
+`logI ~ visit + (1|patientid)`
+
+The global p-value compares this model to the following;
+
+`logI ~ (1|patientid)`
+
+As an alternative the two cohorts are analyzed together, using the following model;
+
+`logI ~ visit + Cohort + visit:Cohort + (1|patientid)`
+
+which, to get the global p-value that indicate the influence of visit on logI, is compared to
+
+`logI ~ Cohort + (1|patientid)`
+
+An addition model is investigated, where the interaction term is not included, i.e. patients in both cohorts are assumed to be affected in the same way over time. (this is what is called 'combined' in below forest plots).
+
+Alternative models are investigated where also PC1 and PC2 are included as covariates.
+
+
+```{r protvisits}
+protvisitsfile<-file.path(intermediate, "protvisitscohort220207.Rds")
+if (file.exists(protvisitsfile)) {
+  res <- readRDS(protvisitsfile)
+} else {
+  ##res <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp) %>% summarize(lmermod(cur_data(), var="visit", y="logIntensity", covar="(1|subjid) + (1+visit|Cohort)", test="F", family=ifelse(all(Discrete), "binomial", "gaussian")), .groups="drop")
+
+  res <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp, Cohort) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var="visit", y="logIntensity", covar="(1|subjid)", test="LRT", family="gaussian"), .groups="drop") %>% mutate(discretized=ifelse(!is.na(t.ratio), FALSE, ifelse(!is.na(z.ratio), TRUE, NA)))  
+  ##With discretization
+  ##res <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp, Cohort) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% mutate(y=if (mean(!is.na(logIntensity0))<0.8) 1*(!is.na(logIntensity0)) else logIntensity) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var="visit", y="y", covar="(1|subjid)", test="LRT", family=ifelse(all(y %in% 0:1), "binomial", "gaussian")), .groups="drop") %>% mutate(discretized=ifelse(!is.na(t.ratio), FALSE, ifelse(!is.na(z.ratio), TRUE, NA)))
+  ##Adjust for PCs
+  saveRDS(res, file=protvisitsfile)
+}
+resw <- res %>% filter(!is.na(contrast)) %>% pivot_wider(names_from = contrast, values_from=all_of(c("fdetect", "estimate", "SE", "df", "t.ratio", "p.value"))) %>% group_by(exp, Cohort) %>%  mutate(q.global=p.adjust(p.global, method="BH")) %>% ungroup()  %>% left_join(Proteins, by=c(Protein="Protein", exp="exp"))
+  
+lmres <- list(visit=res %>% filter(!is.na(contrast)) %>% left_join(Proteins, by=c(Protein="id", exp="exp")) )
+var <- "visit"
+```
+
+```{r protvisitstoghethernoint, message=FALSE}
+##No interaction term!
+protvisitsfile<-file.path(intermediate, "protvisitsbothnoint.Rds")
+if (file.exists(protvisitsfile)) {
+  res <- readRDS(protvisitsfile)
+} else {
+  res <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var=c("visit"), y="logIntensity", covar=c("Cohort", "(1|subjid)"), test="LRT", family="gaussian"), .groups="drop")
+    
+  saveRDS(res, file=protvisitsfile)
+}
+resw <- res %>% filter(!is.na(contrast)) %>% pivot_wider(names_from = contrast, values_from=all_of(c("fdetect", "estimate", "SE", "df", "t.ratio", "p.value"))) %>% group_by(exp) %>%  mutate(q.global=p.adjust(p.global, method="BH")) %>% ungroup() %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+
+nms <- resw %>% group_by(exp) %>% group_keys() %>% apply(1, paste, collapse=" ")
+tabs <- resw %>% group_by(exp) %>% group_split()
+names(tabs) <- nms
+write_xlsx(tabs, path=file.path(intermediate, "result_lmer_visit_noint.xlsx"))
+rm(resw)
+tmp <- gc()
+
+lmres$visitbothnoint <- res %>% filter(!is.na(contrast)) %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+```
+
+```{r protvisitstoghether, message=FALSE}
+protvisitsfile<-file.path(intermediate, "protvisitsboth.Rds")
+if (file.exists(protvisitsfile)) {
+  res <- readRDS(protvisitsfile)
+} else {
+  res <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var=c("visit", "visit:Cohort"), y="logIntensity", covar=c("Cohort", "(1|subjid)"), test="LRT", family="gaussian"), .groups="drop")
+    
+  saveRDS(res, file=protvisitsfile)
+}
+resw <- res %>% filter(!is.na(contrast)) %>% pivot_wider(names_from = contrast, values_from=all_of(c("fdetect", "estimate", "SE", "df", "t.ratio", "p.value"))) %>% group_by(exp, Cohort) %>%  mutate(q.global=p.adjust(p.global, method="BH")) %>% ungroup() %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+
+tabvisit <- resw %>% dplyr::select(-proteingroup) %>% pivot_wider(id_cols = c("Protein", "exp", "PG.Genes"), names_from=Cohort, values_from=c(ends_with("v1 - v0"), ends_with("v2 - v0"), ends_with("v2 - v1")))
+
+nms <- resw %>% group_by(exp, Cohort) %>% group_keys() %>% apply(1, paste, collapse=" ")
+tabs <- resw %>% group_by(exp, Cohort) %>% group_split()
+names(tabs) <- nms
+write_xlsx(tabs, path=file.path(intermediate, "result_lmer_visit.xlsx"))
+rm(resw)
+tmp <- gc()
+
+
+lmres$visitboth <- res %>% filter(!is.na(contrast)) %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+var <- "visitboth"
+```
+
+```{r visitcmpchrtboth, fig.cap="Compare analyses based on the cohorts separately and together.", fig.show="hold", out.width="50%", warning=FALSE}
+res <- lmres$visit %>% full_join(lmres$visitboth, by=c("Protein", "exp", "Cohort", "contrast"), suffix=c(".chrt", ".both"))
+res %>% ggplot(aes(x=p.global.chrt, y=p.global.both, color=Cohort)) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+res %>% ggplot(aes(x=p.value.chrt, y=p.value.both, color=paste(Cohort, contrast))) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+```
+
+
+```{r protvisitPCA}
+protvisitsPCAfile<-file.path(intermediate, "protvisitscohortPCA220210.Rds") 
+if (file.exists(protvisitsPCAfile)) {
+  resPCA <- readRDS(protvisitsPCAfile)
+} else {
+  resPCA <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp, Cohort) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% left_join(PC12, by=c("subjid", "exp", "visit")) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var="visit", y="logIntensity", covar=c("PC1", "PC2", "(1|subjid)"), test="LRT", family="gaussian"), .groups="drop") %>% mutate(discretized=ifelse(!is.na(t.ratio), FALSE, ifelse(!is.na(z.ratio), TRUE, NA)))  
+  saveRDS(resPCA, file=protvisitsPCAfile)
+}
+
+lmres$visitPCA <- resPCA %>% filter(!is.na(contrast)) %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+```
+
+```{r adjPC}
+adjPC <- function(y, pcs) {
+  f <- lm(y~., data=data.frame(y, pcs))
+  c(y - pcs %*% coef(f)[-1])
+}
+X <- X %>% left_join(PC12, by=c("subjid", "exp", "visit")) %>% group_by(protein_type_id) %>% mutate(logIadjPC=adjPC(logIntensity, as.matrix(cur_data()[, c("PC1", "PC2")]))) %>% ungroup()
+```
+
+
+
+```{r protvisitbothPCA}
+protvisitsbothPCAfile<-file.path(intermediate, "protvisitsbothPCA220218.Rds")
+if (file.exists(protvisitsbothPCAfile)) {
+  resbPCA <- readRDS(protvisitsbothPCAfile)
+} else {
+  resbPCA <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var=c("visit", "visit:Cohort"), y="logIntensity", covar=c("Cohort", "PC1", "PC2", "(1|subjid)"), test="LRT", family="gaussian"), .groups="drop") %>% mutate(discretized=ifelse(!is.na(t.ratio), FALSE, ifelse(!is.na(z.ratio), TRUE, NA)))  
+  saveRDS(resbPCA, file=protvisitsbothPCAfile)
+}
+
+lmres$visitbothPCA <- resbPCA %>% filter(!is.na(contrast)) %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+```
+
+```{r protvisitbothnointPCA}
+protvisitsbothPCAnointfile<-file.path(intermediate, "protvisitsbothPCAnoint220217.Rds") 
+if (file.exists(protvisitsbothPCAnointfile)) {
+  resbniPCA <- readRDS(protvisitsbothPCAnointfile)
+} else {
+  resbniPCA <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp) %>% mutate(m=mean(!is.na(logIntensity0))) %>% filter(m>=0.2) %>% summarize(fdetect=unique(m), lmermod(cur_data(), var=c("visit"), y="logIntensity", covar=c("Cohort", "PC1", "PC2", "(1|subjid)"), test="LRT", family="gaussian"), .groups="drop") %>% mutate(discretized=ifelse(!is.na(t.ratio), FALSE, ifelse(!is.na(z.ratio), TRUE, NA)))  
+  saveRDS(resbniPCA, file=protvisitsbothPCAnointfile)
+}
+
+#resPCAw <- resPCA %>% filter(!is.na(contrast)) %>% pivot_wider(names_from = contrast, values_from=all_of(c("fdetect", "estimate", "SE", "df", "t.ratio", "p.value"))) %>% group_by(exp, Cohort) %>%  mutate(q.global=p.adjust(p.global, method="BH")) %>% ungroup()  %>% left_join(Proteins, by=c(Protein="Protein", exp="exp"))
+
+lmres$visitbothnointPCA <- resbniPCA %>% filter(!is.na(contrast)) %>% left_join(Proteins, by=c(Protein="id", exp="exp"))
+```
+
+```{r visitcmpchrtbothPCA, fig.cap="Compare analyses based on the cohorts separately and together, correcting for the first two principal components or not.", fig.show="hold", out.width="50%", warning=FALSE}
+res <- lmres$visit %>% full_join(lmres$visitboth, by=c("Protein", "exp", "Cohort", "contrast"), suffix=c(".chrt", ".both"))
+resb <- lmres$visitPCA %>% full_join(lmres$visitbothPCA, by=c("Protein", "exp", "Cohort", "contrast"), suffix=c(".chrtPCA", ".bothPCA"))
+res <- res %>% full_join(resb) 
+
+res %>% ggplot(aes(x=p.global.chrtPCA, y=p.global.bothPCA, color=Cohort)) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+res %>% ggplot(aes(x=p.value.chrtPCA, y=p.value.bothPCA, color=paste(Cohort, contrast))) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+
+res %>% ggplot(aes(x=p.global.chrt, y=p.global.chrtPCA, color=Cohort)) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+res %>% ggplot(aes(x=p.value.chrt, y=p.value.chrtPCA, color=paste(Cohort, contrast))) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+
+res %>% ggplot(aes(x=p.global.both, y=p.global.bothPCA, color=Cohort)) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("")
+res %>% ggplot(aes(x=p.value.both, y=p.value.bothPCA, color=paste(Cohort, contrast))) + geom_point(alpha=0.5) + scale_x_log10() + scale_y_log10() + theme_bw() + scale_color_discrete("") 
+```
+
+
+```{r pcutoff}
+pcutoff <- 0.005
+```
+
+
+```{r densityvisit, fig.cap="Density plots of visit p-values.", warning=FALSE, fig.show="hold", out.width="50%"}
+lmres$visitboth %>% ggplot() + geom_density(aes(color=paste(Cohort, contrast), linetype=exp, x=p.value)) + theme_bw()
+lmres$visitbothPCA %>% ggplot() + geom_density(aes(color=paste(Cohort, contrast), linetype=exp, x=p.value)) + ggtitle("Adjust PC1 + PC2")+ theme_bw() 
+```
+
+
+```{r QQvisit, fig.cap="QQplots of visit p-values. Observed p-values vs expected p-values.", warning=FALSE, dpi=96, dev="png", fig.show="hold", out.width="50%"}
+# pl <- lmres$visitboth %>% group_by(exp, Cohort, contrast) %>% mutate(exp.p=(rank(p.value, ties.method="first")+.5)/(length(p.value)+1)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p.value), color=paste(Cohort, contrast), shape=exp)) + geom_point() +  geom_abline(intercept = 0, slope=1)
+# plot(pl)
+ci <- 0.95 
+lmres$visitboth %>% group_by(exp, Cohort, contrast) %>% 
+  mutate(observed = -log10(sort(p.value)),
+    expected = -log10(ppoints(n())),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n(), shape2 = n():1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n(), shape2 = n():1))
+  ) %>% ggplot() + 
+  geom_abline(intercept = 0, slope = 1, alpha = 0.5) +  geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper),alpha = 0.1) +
+    geom_point(aes(color=paste(Cohort, contrast), shape=exp, x=expected, y=observed)) + theme_bw()
+
+lmres$visitbothPCA %>% group_by(exp, Cohort, contrast) %>% 
+  mutate(observed = -log10(sort(p.value)),
+    expected = -log10(ppoints(n())),
+    clower   = -log10(qbeta(p = (1 - ci) / 2, shape1 = 1:n(), shape2 = n():1)),
+    cupper   = -log10(qbeta(p = (1 + ci) / 2, shape1 = 1:n(), shape2 = n():1))
+  ) %>% ggplot() + 
+  geom_abline(intercept = 0, slope = 1, alpha = 0.5) +  geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper),alpha = 0.1) +
+    geom_point(aes(color=paste(Cohort, contrast), shape=exp, x=expected, y=observed)) + ggtitle("Adjust P1 + P2") + theme_bw()
+```
+
+The number of proteins that differ significantly between visits vary between neat and depleted and between Durban and IAVI, see Table \@ref(tab:signifvisitboth).
+
+```{r signifvisit, eval=FALSE}
+resw %>% group_by(exp, Cohort) %>% summarize(n=sum(!is.na(q.global)), signif=sprintf("%i (%.1f %%)", sum(q.global<0.05, na.rm=TRUE), 100*mean(q.global<0.05, na.rm=TRUE))) %>% kable(caption="For each experiment (neat or depleted) and cohort, the number of proteins tested and the number identified to differ significantly between visits") %>% kable_styling()
+```
+
+```{r visitnormchrt, eval=FALSE}
+res <- lmres$visit %>% full_join(lmres$visitnormchrt, by=c("Protein", "exp", "Cohort", "contrast", "id", "PG.Genes"), suffix=c("", "_normchrt"))
+if (verbose>2)
+  lmres$visit %>% filter(!is.na(proteingroup)) %>% dplyr::select(Protein,exp, Cohort, proteingroup, p.global) %>% distinct() %>% group_by(exp, Cohort) %>% mutate(q=p.adjust(p.global, method="BH")) %>% group_by(exp, Cohort, proteingroup)  %>%  summarize(n=sum(!is.na(p.global)), signif=sprintf("%i (%.1f%%)", sum(p.global<pcutoff, na.rm=TRUE), 100*mean(p.global<pcutoff, na.rm=TRUE)), FDRsignif=sprintf("%i (%.1f%%)", sum(q<0.05, na.rm=TRUE), 100*mean(q<0.05, na.rm=TRUE))) %>% kable(caption="For each experiment (neat or depleted) and cohort, the number of proteins tested and the number identified to differ significantly between visits. Based on normalization of both cohorts together.") %>% kable_styling()
+#lmres$visitnormchrt %>% filter(!is.na(proteingroup)) %>% dplyr::select(Protein,exp, Cohort, proteingroup, p.global) %>% distinct() %>% group_by(exp, Cohort) %>% mutate(q=p.adjust(p.global, method="BH")) %>% group_by(exp, Cohort, proteingroup)  %>%  summarize(n=sum(!is.na(p.global)), signif=sprintf("%i (%.1f%%)", sum(p.global<pcutoff, na.rm=TRUE), 100*mean(p.global<pcutoff, na.rm=TRUE)), FDRsignif=sprintf("%i (%.1f%%)", sum(q<0.05, na.rm=TRUE), 100*mean(q<0.05, na.rm=TRUE))) %>% kable(caption="For each experiment (neat or depleted) and cohort, the number of proteins tested and the number identified to differ significantly between visits. Based on normalization of each cohort separately.") %>% kable_styling()
+```
+
+```{r forestplot}
+
+forestplot <- function(res, pcutoff, coef="estimate", pvar="p.value") {
+  ## Significant in either cohort
+  nm <- res %>% filter(!!as.symbol(pvar) <= pcutoff) %>% pull("name")
+  res <- res %>% filter(name %in% nm)
+  ##Arrange according to combined estimates
+  if ("combined" %in% res$Cohort) {
+    nm <- res %>% filter(Cohort=="combined") %>% arrange(!!as.symbol(coef)) %>% pull("name")
+  } else {
+    nm <- res %>% filter(Cohort=="IAVI") %>% arrange(!!as.symbol(coef)) %>% pull("name")
+  }
+  res <- res %>% mutate(name=factor(name, levels=nm)) #%>% filter(p.value <= pcutoff)
+  
+  pl <- res %>% ggplot(aes(x=name, y=!!as.symbol(coef), color=Cohort, shape=!!as.symbol(pvar)<=pcutoff)) + geom_pointrange(aes(ymin=low, ymax=high), position=position_dodge(width=0.4), size=0.4) + scale_shape_manual("", values=c("TRUE"=15, "FALSE"=19), labels=c("significant", "non-significant"))
+  pl + scale_x_discrete("", breaks=levels(pl$data$name), labels=substr(pl$data[match(levels(pl$data$name), pl$data$name), ][["PG.Genes"]], 1, 10)) + geom_hline(yintercept=0) + coord_flip()
+}
+```
+
+The results from analyses based on IAVI and Durban cohorts are combined by combining the p-values using a Stouffer's method, weighted by sample size (number of individuals with samples from both the visits that are compared). As the computed p-values are two-sided and Stoffer's method is based on p-values from one-sided tests, the sign of corresponding log2FC is used to transform the two-sided p-value to a one-sided p-value.
+
+```{r stouffer}
+#' Stouffer's method
+#' 
+#' Stouffer's method to compute meta p-value
+#'
+#' @param p vector of p-values to combine
+#' @param pos vector of booleans that specify if the test statistic is positive, same length as p.
+#' @param w vector of weights, same length as p
+#' @param side 1 if a one-sided test, 2 if two-sided
+#'
+#' @return A combined p-value
+#'
+#' @author Eva Freyhult
+#' @export
+pstouffer <- function(p, pos=TRUE, w, side=2) {
+  pos <- c(-1, 1)[1+1*pos]
+  stopifnot(side %in% 1:2)
+  z <- (pos * qnorm(p/side, lower.tail=FALSE)) %*% w / sqrt(sum(w^2))
+  p <- c(side*pnorm(abs(z), lower.tail=FALSE))
+  return(p)
+} 
+```
+
+```{r metap}
+samplesize <- sampleinfo %>% dplyr::select(subjid, visit_nr, Cohort) %>% distinct() %>% filter(!is.na(Cohort)) %>% group_by(subjid, Cohort) %>% summarize(v10=sum(visit_nr %in% 0:1)==2, v20=sum(visit_nr %in% c(0,2))==2, v21=sum(visit_nr %in% c(1,2))==2) %>% group_by(Cohort) %>% summarize("v1 - v0"=sum(v10), "v2 - v0"=sum(v20), "v2 - v1"=sum(v21))%>% pivot_longer(cols = starts_with("v"), names_to = "contrast", values_to = "size")
+#sampleinfo %>% group_by(subjid, Cohort) %>% summarize(v10=sum(visit_nr %in% 0:1)==2, v20=sum(visit_nr %in% c(0,2))==2, v21=sum(visit_nr %in% c(1,2))==2) %>% group_by(Cohort) %>% summarize("v1 - v0"=sum(v10), "v2 - v0"=sum(v20), "v2 - v1"=sum(v21)) %>% pivot_longer(cols = starts_with("v"), names_to = "contrast", values_to = "size")
+
+var <- "visitboth"
+lmres[[var]] <- lmres[[var]] %>% mutate(name=substr(Protein, 1, 10), low=estimate-qt(0.975, df=df)*SE, high=estimate+qt(0.975, df=df)*SE) %>% left_join(Proteins)
+res <- lmres[[var]] <- lmres[[var]] %>% group_by(contrast, exp, Protein) %>% left_join(samplesize) %>% mutate(p.meta=pstouffer(p.value, t.ratio>0, size)) %>% ungroup()
+ 
+## Remove group_by(exp) before computing q.global, as adjustment should be for all proteins, not depl and neat separately
+resw <- res %>% pivot_wider(id_cols=c("Protein", "exp", "fdetect", "p.global", "Cohort"), names_from=c("contrast"), values_from=all_of(c("estimate", "SE", "df", "t.ratio", "p.value", "p.meta"))) %>% pivot_wider(id_cols=c("Protein", "exp", "fdetect", "p.global", starts_with("p.meta")), names_from=c("Cohort"), values_from=starts_with(c("estimate", "SE", "df", "t.ratio", "p.value"))) %>% mutate(q.global=p.adjust(p.global, method="BH")) %>% ungroup()  %>% left_join(Proteins, by=c(Protein="Protein", exp="exp"))
+write_xlsx(resw, path=file.path(resultdir, "lmer_visit_both.xlsx"))
+```
+
+
+
+\FloatBarrier
+
+```{r signifvisitboth, eval=verbose>2}
+res %>% group_by(exp, Cohort, contrast) %>% summarize(n=sum(!is.na(p.value)), signif=sprintf("%i (%.1f %%)", sum(p.value<pcutoff, na.rm=TRUE), 100*mean(p.value<pcutoff, na.rm=TRUE)), metasignif=sprintf("%i (%.1f %%)", sum(p.meta<pcutoff, na.rm=TRUE), 100*mean(p.meta<pcutoff, na.rm=TRUE))) %>% kable(caption="For each experiment (neat or depleted), cohort and contrast, the number of proteins tested and the number identified to differ significantly between visits") %>% kable_styling()
+```
+
+```{r signifvisitbothPCA}
+lmres$visitbothPCA <- lmres$visitbothPCA%>% mutate(name=substr(Protein, 1, 10), low=estimate-qt(0.975, df=df)*SE, high=estimate+qt(0.975, df=df)*SE) %>% left_join(Proteins) %>% group_by(contrast, exp, Protein) %>% left_join(samplesize) %>% mutate(p.meta=pstouffer(p.value, t.ratio>0, size)) %>% ungroup() 
+lmres$visitbothPCA %>% group_by(exp, Cohort, contrast) %>% summarize(n=sum(!is.na(p.value)), signif=sprintf("%i (%.1f %%)", sum(p.value<pcutoff, na.rm=TRUE), 100*mean(p.value<pcutoff, na.rm=TRUE)), metasignif=sprintf("%i (%.1f %%)", sum(p.meta<pcutoff, na.rm=TRUE), 100*mean(p.meta<pcutoff, na.rm=TRUE))) %>% kable(caption="For each experiment (neat or depleted), cohort and contrast, the number of proteins tested and the number identified to differ significantly between visits") %>% kable_styling()
+ 
+## Remove group_by(exp) before computing q.global, as adjustment should be for all proteins, not depl and neat separately
+write_xlsx(lmres[["visitbothPCA"]] %>% pivot_wider(id_cols=c("Protein", "exp", "fdetect", "p.global", "Cohort"), names_from=c("contrast"), values_from=all_of(c("estimate", "SE", "df", "t.ratio", "p.value", "p.meta"))) %>% pivot_wider(id_cols=c("Protein", "exp", "fdetect", "p.global", starts_with("p.meta")), names_from=c("Cohort"), values_from=starts_with(c("estimate", "SE", "df", "t.ratio", "p.value"))) %>% mutate(q.global=p.adjust(p.global, method="BH")) %>% ungroup()  %>% left_join(Proteins, by=c(Protein="Protein", exp="exp")), path=file.path(resultdir, "lmer_visit_both_adjPC12.xlsx"))
+```
+
+```{r volcanovisit, warning=FALSE, fig.cap="Volcano plots for visits.", warning=FALSE, eval=verbose>2}
+
+lmres$visitboth %>% ggplot(aes(x=estimate, y=-log10(p.value), color=Cohort, alpha=(p.value<pcutoff))) + geom_point(size=0.5) + facet_grid(exp~contrast) + theme_bw() + xlab("log2FC")
+```
+
+```{r volcanovisitPCA, warning=FALSE, fig.cap="Volcano plots for visits, adjust for PC1 and PC2.", warning=FALSE}
+lmres$visitbothPCA %>% ggplot(aes(x=estimate, y=-log10(p.value), color=Cohort, alpha=(p.value<pcutoff))) + geom_point(size=0.5) + facet_grid(exp~contrast) + theme_bw() + xlab("log2FC") 
+```
+
+
+```{r MAvisit, warning=FALSE, fig.cap="Effect size (log2FC) vs average log2Intenisty. Colored according to cohort, non-significant differences are shaded.", warning=FALSE, eval=verbose>2}
+##Average logI per protein, exp and cohort
+avelogI <- X %>% filter(proteingroup!="excluded") %>% group_by(Protein, exp, Cohort) %>% summarize(avelogI = mean(logIntensity), avelogIv1v0=mean(logIntensity[visitnr %in% 0:1]),  avelogIv2v1=mean(logIntensity[visitnr %in% 1:2]), avelogIv2v0=mean(logIntensity[visitnr %in% c(0,2)]))
+res <- res %>% left_join(avelogI) %>% mutate(alogI=ifelse(contrast=="v1 - v0", avelogIv1v0, ifelse(contrast=="v2 - v0", avelogIv2v0, ifelse(contrast=="v2 - v1", avelogIv2v1, NA))))
+res %>% ggplot(aes(x=alogI, y=estimate, color=Cohort, alpha=(p.value<pcutoff))) + geom_point(size=0.5) + facet_grid(exp~contrast) + theme_bw() + ylab("log2FC") + xlab("average log2I") 
+```
+
+```{r, eval=FALSE}
+fdetect <- X %>% group_by(exp, Protein) %>%  summarize(fdetectglob=mean(!is.na(logIntensity0)))
+res %>% left_join(fdetect) %>% filter(fdetectglob>=0.8) %>% ggplot(aes(x=alogI, y=estimate, color=Cohort, alpha=(p.value<pcutoff))) + geom_point(size=0.5) + facet_grid(exp~contrast) + theme_bw() + ylab("log2FC") + xlab("average log2I")
+```
+
+```{r}
+res <- lmres$visitboth %>% full_join(lmres$visitbothnoint %>% mutate( Cohort="combined", name=substr(Protein, 1, 10), low=estimate-qt(0.975, df=df)*SE, high=estimate+qt(0.975, df=df)*SE, p.meta=p.value)) 
+resPC <- lmres$visitbothPCA %>% full_join(lmres$visitbothnointPCA %>% mutate( Cohort="combined", name=substr(Protein, 1, 10), low=estimate-qt(0.975, df=df)*SE, high=estimate+qt(0.975, df=df)*SE, p.meta=p.value))
+```
+
+```{r, eval=FALSE}
+resPC %>% filter(p.value<0.005) %>% group_by(contrast, Cohort) %>% summarize(n=n(), nup=sum(p.value<0.005&estimate>1), ndown=sum(p.value<0.005&estimate<(-1)))
+resPC %>% filter(Cohort %in% c("Durban", "IAVI")) %>% group_by(protein_type_id) %>% summarize(up=sum(estimate>1&p.value<0.005), down=sum(estimate<(-1)&p.value<0.005)) %>% filter(up==2|down==2)
+```
+
+```{r forestvisitagree, fig.cap="Significant differences between a pair of visits, where IAVI and Durban results agree (same sign of log2FC). Only proteins where a significant difference is seen between visits in at least one cohort and where the difference |log2FC|>=1. Adjusted for PC1 and PC2.", fig.width=12, fig.height=10}
+## resPC %>% pivot_wider(id_cols = c(Protein, exp, protein_type_id, contrast), names_from = Cohort, values_from = c(estimate, p.value))
+#resPCsignif <- resPC %>% filter(p.value<=pcutoff, abs(estimate)>=1) %>% mutate(change=ifelse(estimate>0, "pos", "neg")) %>% group_by(contrast, Cohort, change)
+#sel <- resPCsignif %>% group_keys() %>% mutate(proteins=lapply(resPCsignif %>% group_split(), function(z) z %>% pull(protein_type_id)))
+#sel %>% filter(Cohort != "combined") %>% group_by(contrast, change) %>% summarize(pr=ifelse(n()>1, do.call("intersect", proteins) %>% list(), list()))
+
+##Samma tecken och åtminstone ena signif
+agree <- resPC %>% filter(Cohort != "combined") %>% group_by(contrast, protein_type_id) %>% filter(any(p.value<=pcutoff), prod(estimate)>0, all(p.value<0.05)) %>% mutate(maxdiff=max(abs(estimate[p.value<pcutoff])))
+
+  pl <- agree %>% filter(maxdiff>=1) %>% mutate(protein_type_id=factor(protein_type_id)) %>% ggplot(aes(x=protein_type_id, y=estimate, color=Cohort, shape=p.value<=pcutoff)) + geom_pointrange(aes(ymin=low, ymax=high), position=position_dodge(width=0.4), size=0.4) + scale_shape_manual("", values=c("TRUE"=15, "FALSE"=19), labels=c("significant", "non-significant"))
+  pl + scale_x_discrete("", breaks=levels(pl$data$protein_type_id), labels=substr(pl$data[match(levels(pl$data$protein_type_id), pl$data$protein_type_id), ][["PG.Genes"]], 1, 10)) + geom_hline(yintercept=0) + coord_flip() + facet_wrap(~contrast, scales="free_y") + theme_bw()
+```
+
+
+```{r forestvisitnotagree, fig.cap="Significant differences between a pair of visits, where IAVI and Durban results do not agree (different sign of log2FC). Only proteins where a significant difference is seen between visits in at least one cohort and where the difference |log2FC|>=1. Adjusted for PC1 and PC2.", fig.width=12, fig.height=10}
+##Olika tecken, en en signif
+notagree <- resPC %>% filter(Cohort != "combined") %>% group_by(contrast, protein_type_id) %>% mutate(signif=any(p.value<=pcutoff), samesign=prod(estimate)>0) %>% filter(signif, !samesign) %>% mutate(maxdiff=max(abs(estimate[p.value<pcutoff])))
+
+  pl <- notagree %>% filter(maxdiff>=1) %>% mutate(protein_type_id=factor(protein_type_id)) %>% ggplot(aes(x=protein_type_id, y=estimate, color=Cohort, shape=p.value<=pcutoff)) + geom_pointrange(aes(ymin=low, ymax=high), position=position_dodge(width=0.4), size=0.4) + scale_shape_manual("", values=c("TRUE"=15, "FALSE"=19), labels=c("significant", "non-significant"))
+  pl + scale_x_discrete("", breaks=levels(pl$data$protein_type_id), labels=substr(pl$data[match(levels(pl$data$protein_type_id), pl$data$protein_type_id), ][["PG.Genes"]], 1, 10)) + geom_hline(yintercept=0) + coord_flip() + facet_wrap(~contrast, scales="free_y") + theme_bw()
+```
+
+
+
+```{r forestv10, fig.cap="Significant differences between v1 and v0, IAVI and Durban analyzed together, with an interaction term (Cohort:visit) for the cohort specific results and without the interaction term for the combined results. Don't adjust for PC1 and PC2", fig.height=14, dependson="forestplot", fig.show="hold", out.width="50%", eval=verbose>2}
+forestplot(res %>% filter(contrast=="v1 - v0", exp=="neat"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v1 - v0", subtitle="neat") 
+forestplot(res %>% filter(contrast=="v1 - v0", exp=="depl"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v1 - v0", subtitle="depl") 
+```
+
+```{r forestv10PC, fig.cap="Significant differences between v1 and v0, IAVI and Durban analyzed together, with an interaction term (Cohort:visit) for the cohort specific results and without the interaction term for the combined results. Adjust for PC1 and PC2.", fig.height=14, dependson="forestplot", fig.show="hold", out.width="50%", eval=verbose>2}
+forestplot(resPC %>% filter(contrast=="v1 - v0", exp=="neat"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v1 - v0", subtitle="neat")
+forestplot(resPC %>% filter(contrast=="v1 - v0", exp=="depl"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v1 - v0", subtitle="depl")
+```
+
+```{r forestv21, fig.cap="Significant differences between v2 and v1, IAVI and Durban analyzed together, with an interaction term (Cohort:visit) for the cohort specific results and without the interaction term for the combined results. Don't adjust for PC1 and PC2.", fig.height=14, dependson="forestplot", fig.show="hold", out.width="50%", eval=verbose>2}
+forestplot(res %>% filter(contrast=="v2 - v1", exp=="neat"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v1", subtitle="neat")
+forestplot(res %>% filter(contrast=="v2 - v1", exp=="depl"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v1", subtitle="depl") 
+```
+
+```{r forestv21PC, fig.cap="Significant differences between v2 and v1, IAVI and Durban analyzed together, with an interaction term (Cohort:visit) for the cohort specific results and without the interaction term for the combined results. Adjust for PC1 and PC2.", fig.height=14, dependson="forestplot", fig.show="hold", out.width="50%", eval=verbose>2}
+forestplot(resPC %>% filter(contrast=="v2 - v1", exp=="neat"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v1", subtitle="neat") 
+forestplot(resPC %>% filter(contrast=="v2 - v1", exp=="depl"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v1", subtitle="depl") 
+```
+
+
+```{r forestv20, fig.cap="Significant differences between v2 and v0, IAVI and Durban analyzed together, with an interaction term (Cohort:visit) for the cohort specific results and without the interaction term for the combined results. Don't adjust for PC1 and PC2.", fig.height=14, dependson="forestplot", fig.show="hold", out.width="50%", eval=verbose>2}
+forestplot(res %>% filter(contrast=="v2 - v0", exp=="neat"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v0", subtitle="neat")
+forestplot(res %>% filter(contrast=="v2 - v0", exp=="depl"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v0", subtitle="depl")
+```
+
+```{r forestv20PC, fig.cap="Significant differences between v2 and v0, IAVI and Durban analyzed together, with an interaction term (Cohort:visit) for the cohort specific results and without the interaction term for the combined results. Adjust for PC1 and PC2.", fig.height=14, dependson="forestplot", fig.show="hold", out.width="50%", eval=verbose>2}
+forestplot(resPC %>% filter(contrast=="v2 - v0", exp=="neat"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v0", subtitle="neat")
+forestplot(resPC %>% filter(contrast=="v2 - v0", exp=="depl"), 0.005, pvar="p.meta") + theme_bw() + ggtitle("v2 - v0", subtitle="depl") 
+```
+
+\FloatBarrier
+
+<!-- Only proteins that are analyzed in both neat and depleted. -->
+
+```{r foresplotoverlap}
+##
+forestplotoverlap <- function(res, pcutoff, pvar="p.value") {
+  ## Significant in either cohort
+  nm <- res %>% filter(!!as.symbol(pvar) <= pcutoff) %>% pull("name")
+  res <- res %>% filter(name %in% nm)
+  ##Arrange according to IAVI estimates
+  nm <- res %>% filter(Cohort=="IAVI", exp=="depl") %>% arrange(estimate) %>% pull("name")
+  res <- res %>% mutate(name=factor(name, levels=nm))
+  
+  pl <- res %>% ggplot(aes(x=name, y=estimate, color=paste(exp, Cohort), shape=!!as.symbol(pvar)<=pcutoff)) + geom_pointrange(aes(ymin=low, ymax=high), position=position_dodge(width=0.4), size=0.4) + scale_shape_manual("", values=c("TRUE"=15, "FALSE"=19), labels=c("significant", "non-significant"))
+  pl <- pl + scale_x_discrete("", breaks=levels(pl$data$name), labels=substr(pl$data[match(levels(pl$data$name), pl$data$name), ][["PG.Genes"]], 1, 10)) + geom_hline(yintercept=0) + coord_flip() + theme_bw()
+  return(pl)
+}
+```
+
+
+```{r forestoverlapv10, fig.cap="Forest plot of proteins analyzed both in neat and depleted. Only proteins that are significantly changed between v1 and v0 in neat and/or depleted are inluded in the plot. Adjusted for PC1 and PC2.", dependson="forestplotoverlap", fig.height=14, out.width="50%", eval=verbose>2}
+##Proteins analyzed in both neat and depleted
+forestplotoverlap(resPC %>% filter(Protein %in% protoverlap0, contrast=="v1 - v0"), pcutoff, "p.meta")
+```
+
+```{r forestoverlapv21, fig.cap="Forest plot of proteins analyzed both in neat and depleted. Only proteins that are significantly changed between v2 and v1 in neat and/or depleted are inluded in the plot. Adjusted for PC1 and PC2.", fig.height=14, dependson="forestplotoverlap", fig.height=14, out.width="50%", eval=verbose>2}
+##Proteins analyzed in both neat and depleted
+forestplotoverlap(resPC %>% filter(Protein %in% protoverlap0, contrast=="v2 - v1"), pcutoff, "p.meta")
+```
+
+```{r forestoverlapv20, fig.cap="Forest plot of proteins analyzed both in neat and depleted. Only proteins that are significantly changed between v2 and v0 in neat and/or depleted are inluded in the plot. Adjusted for PC1 and PC2.", fig.height=14, dependson="forestplotoverlap", fig.height=14, out.width="50%", eval=verbose>2}
+##Proteins analyzed in both neat and depleted
+forestplotoverlap(resPC %>% filter(Protein %in% protoverlap0, contrast=="v2 - v0"), pcutoff, "p.meta")
+```
+
+
+\FloatBarrier
+
+<!-- If the IAVI cohort is used as a discovery cohort, for which the significance threshold is 0.005, a subset of interesting proteins (per comparison) can be selected. This set of significant proteins is investigated in the validation cohort, Durban, as this is a validation cohort the significance threshold 0.05 will be used. The following forestplots show proteins that were significant in IAVI and could be confirmed in Durban. -->
+
+```{r}
+forestplot2 <- function(res, pcutoff = c(0.005, 0.05)) {
+  ## Significant in IAVI
+  nm <- res %>% filter(Cohort=="IAVI", p.value <= pcutoff[1]) %>% pull("name")
+  res <- res %>% filter(name %in% nm)
+  ##Also significant in Durban
+  nm <- res %>% filter(Cohort=="Durban", p.value <= pcutoff[2]) %>% pull("name")
+  res <- res %>% filter(name %in% nm)
+  ##Arrange according to IAVI estimates
+  nm <- res %>% filter(Cohort=="IAVI") %>% arrange(estimate) %>% pull("name")
+  res <- res %>% mutate(name=factor(name, levels=nm))
+  pl <- res %>% ggplot(aes(x=name, y=estimate, color=Cohort)) + geom_pointrange(aes(ymin=low, ymax=high), position=position_dodge(width=0.4), shape=15, size=0.4)
+  pl + scale_x_discrete("", breaks=levels(pl$data$name), labels=substr(pl$data[match(levels(pl$data$name), pl$data$name), ][["PG.Genes"]], 1, 10)) + geom_hline(yintercept = 0) + coord_flip()
+}
+```
+
+```{r genforestplot2, results = "asis", eval=verbose>2}
+fplot <- "```{r forest2{{v2}}{{v1}}, fig.cap=\"Significant differences between {{v2}} and {{v1}}. IAVI is discovery cohort, Durban validation.\", fig.height=10, fig.show=\"hold\", out.width=\"50%\"}
+forestplot2(res %>% filter(contrast==\"{{v2}} - {{v1}}\", exp==\"neat\")) + theme_bw() + ggtitle(\"{{v2}} - {{v1}}\", subtitle=\"neat\")
+forestplot2(res %>% filter(contrast==\"{{v2}} - {{v1}}\", exp==\"depl\")) + theme_bw() + ggtitle(\"{{v2}} - {{v1}}\", subtitle=\"depl\")\n```"
+
+rmd <- res %>% dplyr::select(contrast) %>% distinct() %>% mutate(v2=substr(contrast, 1, 2), v1=substr(contrast, 6,7)) %>% rowwise() %>% mutate(pl= knitr::knit_expand(text=fplot, v2=v2, v1=v1)) %>% pull("pl")
+
+for (txt in rmd) { 
+  cat("\n")
+  cat(knitr::knit_child(text = txt, quiet = TRUE))
+  cat("\n\n")
+}
+```
+
+```{r topvisit, eval=FALSE}
+tab <- lmres[[var]] %>% mutate(Protein=substr(Protein, 1, 10)) %>% dplyr::select(Protein, PG.Genes, p.global, q.global,  starts_with("estimate"), starts_with("p.value")) %>% mutate(PG.Genes=substr(PG.Genes, 1, 10)) %>% arrange(p.global)
+openxlsx::write.xlsx(tab, file=file.path(intermediate, "lmer_visits.xlsx"))
+tab <- tab %>% filter(q.global<0.05) %>% mutate(across(c(starts_with("p."),starts_with("q.")), ~sprintf("%.2g", .x)), across(starts_with("est"), ~sprintf("%.2f", .x)))
+colnames(tab) <- gsub("estimate_", "", gsub("p.value_", "", colnames(tab)))
+tab %>% head(100) %>% kable(caption="Association between protein level and visit.", longtable=TRUE, ) %>% add_header_above(list(Protein=2, global=2, estimate=3, p.value=3)) %>% kable_styling(latex_options = c("repeat_header"))  
+```
+
+```{r visitheatmap, fig.cap="Proteins with a significant association between visits and protein levels.", fig.height=14, eval=FALSE}
+k <- lmres$visitboth %>% filter(!Discrete, q.global<0.05) %>% arrange(p.global) %>% head(100) %>% mutate(Protein=paste0(paste(substr(Protein, 1, 10), exp, sep="."), ifelse(!is.na(`z.ratio_1 - 0`), "*", ""))) %>% dplyr::select(Protein, starts_with("estimate")) %>% column_to_rownames("Protein")
+colnames(k) <- gsub("estimate_", "", colnames(k))  
+p <- lmres[[var]] %>% filter(q.global<0.05) %>% arrange(p.global) %>% head(100) %>% mutate(Protein=paste0(paste(Protein, exp, sep="."), ifelse(!is.na(`z.ratio_1 - 0`), "*", ""))) %>% dplyr::select(Protein, starts_with("p.value")) %>% column_to_rownames("Protein")
+pheatmap(k, cluster_cols = FALSE, display_numbers=apply(p, 2, function(x) c("", "*")[1+1*(x<0.05)]), fontsize_number=8) 
+```
+
+```{r visitsignif, fig.cap="Proteins that show significant association between protein level and visit, top 20. For continuous values Durban is shown in red and IAVI in blue. Discretized protein values are shown in black (detectable) and white (undetectable/missing).", fig.height=14, fig.width=10, out.width="100%", warning=FALSE, cache=FALSE, eval=FALSE}
+sel <- lmres[[var]] %>% filter(q.global<=0.05) %>% arrange(p.global) %>% dplyr::select(Protein, exp, Discrete)
+#seln <- sel %>% filter(!Discrete) %>% pull("Protein")
+#seld <- sel %>% filter(Discrete) %>% pull("Protein") 
+#sel <- sel %>% pull("Protein")
+X <- X %>% group_by(subjid, Protein) %>% mutate(logIntensity_v0=ifelse(any(visit_nr==0), logIntensity[visit_nr==0], NA), logI_norm=logIntensity-logIntensity_v0)
+
+sel21neg <- lmres[[var]] %>% filter(q.global<=0.05, `p.value_2 - 1`<=0.05, `estimate_2 - 1`<0) %>% arrange(p.global) %>% dplyr::select(Protein, exp, Discrete)
+sel21pos <- lmres[[var]] %>% filter(q.global<=0.05, `p.value_2 - 1`<=0.05, `estimate_2 - 1`>0) %>% arrange(p.global) %>% dplyr::select(Protein, exp, Discrete)
+sel21no <- lmres[[var]] %>% filter(q.global<=0.05, `p.value_2 - 1`>0.05, `estimate_2 - 1`>0) %>% arrange(p.global) %>% dplyr::select(Protein, exp, Discrete)
+
+
+plotnorm <- function(x, e) {
+  pl <- X %>% filter(Protein==x, exp==e) %>% ggplot(aes(x=visitnr, y=logI_norm, color=Cohort)) + geom_line(aes(group=subjid), alpha=0.5, linetype=2)
+  pl + geom_line(data=pl$data %>% group_by(visitnr) %>% summarize(logI_norm=median(logI_norm, na.rm=TRUE)), aes(x=visitnr, y=logI_norm), size=2, color="black") + theme_bw() + theme(legend.position = "none") + ggtitle(paste(x,e))
+}
+plotdisc <- function(x, e) {
+  X %>% filter(Protein %in% x, exp==e) %>% ggplot(aes(x=visitnr, fill=factor(logIntensity))) + geom_bar(color="black") + scale_fill_manual("Detectable", values=c("white", "black")) + theme_bw() + theme(legend.position = "none") + ggtitle(paste(x,e))
+}
+
+pl <- pmap(sel %>% head(20), function(Protein, exp, Discrete) if (Discrete) plotdisc(Protein, exp) else plotnorm(Protein, exp))
+
+# pln <- map(seln, plotnorm)
+# names(pln) <- seln
+# 
+# pld <- map(seld, plotdisc)
+# names(pld) <- seld
+# 
+# pl <- c(pln, pld)[sel]
+
+ggarrange(plotlist = pl)
+#pl <- X %>% filter(Protein %in% seln) %>% mutate(Protein=factor(Protein, levels=seln)) %>% ggplot(aes(x=visitnr, y=logI_norm, color=Cohort)) + geom_line(aes(group=subjid), alpha=0.5, linetype=2) + facet_wrap(~Protein, ncol=7, scales="free_y")
+#plot(pl + geom_line(data=pl$data %>% group_by(Protein, visitnr) %>% summarize(logI_norm=median(logI_norm, na.rm=TRUE)), aes(x=visitnr, y=logI_norm), size=2, color="black") + theme_bw())
+```
+
+
+```{r visitsel21neg, fig.cap="Proteins that show significant association between protein level and visit and that are significantly lower at visit 2 than visit 1. Top 12.", fig.height=10, fig.width=7, out.width="100%", warning=FALSE, eval=FALSE}
+pl <- pmap(sel21neg[1:12,], function(Protein, exp, Discrete) if (Discrete) plotdisc(Protein, exp) else plotnorm(Protein, exp))
+ggarrange(plotlist=pl)
+```
+
+
+```{r visitsel21pos, fig.cap="Proteins that show significant association between protein level and visit and that are significantly higher at visit 2 than visit 1.", fig.height=10, fig.width=7, out.width="100%", warning=FALSE, eval=FALSE}
+pl <- pmap(sel21pos[1:12,], function(Protein, exp, Discrete) if (Discrete) plotdisc(Protein, exp) else plotnorm(Protein, exp))
+ggarrange(plotlist=pl)
+```
+
+```{r visitsel21no, fig.cap="Proteins that show significant association between protein level and visit, but no significant difference between visit 2 and 1.", fig.height=5, fig.width=7, out.width="100%", warning=FALSE, eval=FALSE}
+pl <- pmap(sel21no[1:12,], function(Protein, exp, Discrete) if (Discrete) plotdisc(Protein, exp) else plotnorm(Protein, exp))
+ggarrange(plotlist=pl)
+```
+
+\FloatBarrier
+
+#### Longitudinal profiles for proteins that differ between visits
+
+For each visit contrast select proteins that are significant (p<`r pcutoff`) in at least one cohort, p<0.05 in both cohorts, log2FC of both cohorts have the same sign and |log2FC|>1.
+
+```{r}
+sel <- lmres$visitbothPCA %>% group_by(contrast, protein_type_id) %>% filter(any(p.value<0.005)&all(p.value<0.05)&any(abs(estimate)>1)&prod(estimate)>0) %>% mutate(direction=c("down", "up")[1+1*all(estimate>0)]) %>% dplyr::select(protein_type_id, PG.Genes, contrast, direction) %>% distinct()
+
+n <- sel %>% group_by(contrast) %>% summarize(n=n()) %>% column_to_rownames("contrast") %>% t()
+pls <- sel %>% group_by(contrast) %>% left_join(X, by=c("protein_type_id")) %>% mutate(name=paste(protein_type_id, PG.Genes, direction, sep="/")) %>% summarize(pl=list(cur_data() %>% ggplot(aes(x=visitnr, y=logIntensity, group=subjid, color=Cohort)) + geom_line() + facet_wrap(~name, scales="free_y") + theme_bw()))
+```
+
+```{r genplotselvisit, results="asis"}
+template <- "```{r longprofilevisit{{vnm}}, fig.cap=\"Longitudinal profiles of proteins that differ between {{v}}.\", fig.width={{w}}, fig.height={{h}}}
+(pls%>%filter(contrast=='{{v}}') %>% pull(pl))[[1]]
+```\n\n"
+
+src <- lapply(pls$contrast, function(v) {
+  if (n[1,v]<4) {
+    w=2*n[1,v]+1
+    h=2+0.5
+  } else {
+    w <- h <- 2.5*ceiling(sqrt(n[1,v]))
+    w <- w + 1
+    h <- h + 0.5
+  }
+  vnm <- gsub(" - ", "", v)
+  knitr::knit_expand(text = template, v=v, vnm=vnm, w=w, h=h)
+  })
+
+cat(knitr::knit_child(text = unlist(src), quiet = TRUE), sep = '\n\n') 
+
+```
+
+
+\FloatBarrier
+
+
+<!-- ### PCA -->
+
+```{r Xwide}
+##Subtypes
+X <- X %>% mutate(subtypeC=1*(Subtype=="C"), subtypeA=1*grepl("^A", Subtype), A1=1*(Subtype=="A1")) %>% mutate(protexp=paste(Protein, exp, sep="."), visit=paste0("v", visit_nr), Age25=Age>=25)
+
+cols <- colnames(X)
+cols <- c("subjid", "Protein", "Excluded", "vl_setpt", "Sex", "Risk_grp", "Dob", "Edi", "Site", "Subtype", "Fever", "Headache", "Nightsweats", "Myalgia", "Fatigue", "Skinrash", "Oralulcers", "Pharyngitis", "Lymphadenopathy", "Diarrhea", "Anorexia", "ARS", "Cohort", "Age", "artstart_date", "revised_edi", "exp", #"date",
+          "subtypeC", "subtypeA", "protexp", "Age25")
+#cols[(grep("vl_setpt", cols)):(grep("Protein", cols))], "exp", "protexp", "Discrete", "proteingroup", "Age25", "subtypeC", "subtypeA")
+Xw <- pivot_wider(X %>% filter(proteingroup!="excluded"), names_from="visit_nr", id_cols=c(protein_type_id, cols), values_from = "logIntensity", names_prefix = "v") 
+Xw <- Xw %>% mutate(v10=v1-v0, v20=v2-v0, v21=v2-v1)
+#Xl <- Xw %>% pivot_longer(paste0("v", c(0,1,2,10,20,21)), names_to="visit", values_to="logIntensity") %>% filter(!is.na(logIntensity))
+```
+
+```{r Xwpc}
+Xwpc <- pivot_wider(X %>% filter(proteingroup!="excluded"), names_from="visit_nr", id_cols=c(protein_type_id, cols), values_from = c("logIntensity", "PC1", "PC2"), names_prefix = "v") 
+```
+
+
+
+```{r PCAneatIAVI, fig.cap="PCA based on visit 0, 1 or 2 or based on the differences v1-v0, v2-v0 or v2-v1. Neat data IAVI", fig.show="hold", out.width="50%", eval=FALSE}
+for (v in paste0("v", c(0:2, 10, 20, 21))) {
+  Xv <- pivot_wider(Xw %>% filter(!is.na(!!sym(v)),  exp=="neat", Cohort=="IAVI"), names_from="Protein", values_from=all_of(v), id_cols="subjid") %>% column_to_rownames("subjid")
+  pc <- prcomp(Xv, scale. = TRUE)
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Subtype)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point(aes(shape=ifelse(is.na(ARS), NA, paste0("ARS=",ARS)))) + scale_shape_manual("",values=c("ARS=Yes"=16,"ARS=No"=4, Male=21, Female=22), na.value=21) + ggtitle(v) + scale_color_manual(values=c(A1="tomato", A2D="orange", C="lightgreen", D="cyan", G="cornflowerblue", Male="blue", Female="Pink"), na.value="grey") + geom_point(aes(shape=Sex), size=3)) 
+} 
+```
+
+```{r PCAneatsite, fig.cap="PCA based on visit 0, 1 or 2 or based on the differences v1-v0, v2-v0 or v2-v1. Neat data IAVI, colored according to site.", fig.show="hold", out.width="50%", eval=FALSE}
+for (v in paste0("v", c(0:2, 10, 20, 21))) {
+  Xv <- pivot_wider(Xw %>% filter(!is.na(!!sym(v)), exp=="neat", Cohort=="IAVI"), names_from="Protein", values_from=all_of(v), id_cols="subjid") %>% column_to_rownames("subjid")
+  pc <- prcomp(Xv, scale. = TRUE)
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Site)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + ggtitle(v)) 
+} 
+```
+
+```{r PCAneatDurban, fig.cap="PCA based on visit 0, 1 or 2 or based on the differences v1-v0, v2-v0 or v2-v1. Neat data Durban", fig.show="hold", out.width="50%", eval=FALSE}
+for (v in paste0("v", c(0:2, 10, 20, 21))) {
+  Xv <- pivot_wider(Xw %>% filter(!is.na(!!sym(v)),  exp=="neat", Cohort=="Durban"), names_from="Protein", values_from=all_of(v), id_cols="subjid") %>% column_to_rownames("subjid")
+  pc <- prcomp(Xv, scale. = TRUE)
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Subtype)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point(aes(shape=ifelse(is.na(ARS), NA, paste0("ARS=",ARS)))) + scale_shape_manual("",values=c("ARS=Yes"=16,"ARS=No"=4, Male=21, Female=22), na.value=21) + ggtitle(v) + scale_color_manual(values=c(A1="tomato", A2D="orange", C="lightgreen", D="cyan", G="cornflowerblue", Male="blue", Female="Pink"), na.value="grey") + geom_point(aes(shape=Sex), size=3)) 
+} 
+```
+
+
+```{r PCAdeplIAVI, fig.cap="PCA based on visit 0, 1 or 2 or based on the differences v1-v0, v2-v0 or v2-v1. Depleted data IAVI", fig.show="hold", out.width="50%", eval=FALSE}
+for (v in paste0("v", c(0:2, 10, 20, 21))) {
+  Xv <- pivot_wider(Xw %>% filter(!is.na(!!sym(v)), exp=="depl", Cohort=="IAVI"), names_from="Protein", values_from=all_of(v), id_cols="subjid") %>% column_to_rownames("subjid") 
+  pc <- prcomp(Xv, scale. = TRUE)
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Subtype)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point(aes(shape=ifelse(is.na(ARS), NA, paste0("ARS=",ARS)))) + scale_shape_manual("",values=c("ARS=Yes"=16,"ARS=No"=4, Male=21, Female=22), na.value=21) + ggtitle(v) + scale_color_manual(values=c(A1="tomato", A2D="orange", C="lightgreen", D="cyan", G="cornflowerblue", Male="blue", Female="Pink"), na.value="grey") + geom_point(aes(shape=Sex), size=3))
+} 
+```
+
+```{r PCAdeplsite, fig.cap="PCA based on visit 0, 1 or 2 or based on the differences v1-v0, v2-v0 or v2-v1. Depleted data IAVI, colored according to site.", fig.show="hold", out.width="50%", eval=FALSE}
+for (v in paste0("v", c(0:2, 10, 20, 21))) {
+  Xv <- pivot_wider(Xw %>% filter(!is.na(!!sym(v)), exp=="depl", Cohort=="IAVI"), names_from="Protein", values_from=all_of(v), id_cols="subjid") %>% column_to_rownames("subjid") 
+  pc <- prcomp(Xv, scale. = TRUE)
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Site)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point() + ggtitle(v))
+} 
+```
+
+```{r PCAdeplDurban, fig.cap="PCA based on visit 0, 1 or 2 or based on the differences v1-v0, v2-v0 or v2-v1. Depleted data Durban", fig.show="hold", out.width="50%", eval=FALSE}
+for (v in paste0("v", c(0:2, 10, 20, 21))) {
+  Xv <- pivot_wider(Xw %>% filter(!is.na(!!sym(v)), exp=="depl", Cohort=="Durban"), names_from="Protein", values_from=all_of(v), id_cols="subjid") %>% column_to_rownames("subjid") 
+  pc <- prcomp(Xv, scale. = TRUE)
+  pcnames <- sprintf("PC%d (%2.0f%%)", 1:4, 100*pc$sdev[1:4]^2 / sum(pc$sdev^2))
+  PCsc <- pc$x %>% as_tibble(rownames="subjid") %>% left_join(clinc)
+  plot(ggplot(PCsc, aes(x=PC1,y=PC2, color=Subtype)) + xlab(pcnames[1]) + ylab(pcnames[2]) + theme_bw() + geom_point(aes(shape=ifelse(is.na(ARS), NA, paste0("ARS=",ARS)))) + scale_shape_manual("",values=c("ARS=Yes"=16,"ARS=No"=4, Male=21, Female=22), na.value=21) + ggtitle(v) + scale_color_manual(values=c(A1="tomato", A2D="orange", C="lightgreen", D="cyan", G="cornflowerblue", Male="blue", Female="Pink"), na.value="grey") + geom_point(aes(shape=Sex), size=3))
+} 
+```
+
+\FloatBarrier
+
+## Clustering of visit profiles
+
+Longitudinal profiles of proteins were clustered using a combination of kmeans and hierarchical clustering. 
+
+
+```{r Xtime}
+##Only proteins in protkeep
+#Xtime <- X %>% dplyr::select(-visit_nr, -sampleid, -visit) %>% pivot_wider(names_from=visitnr, values_from=starts_with("logI"))
+Xtime0 <- X %>% filter(proteingroup != "excluded") %>% dplyr::select(visitnr, logIntensity, subjid, exp, Protein) %>% pivot_wider(names_from=c("subjid", "exp", "Protein"), values_from=logIntensity) %>% arrange(visitnr) %>% column_to_rownames("visitnr") %>% as.matrix()
+##Remove columns with any missing values
+Xtime <- Xtime0[, colSums(is.na(Xtime0))==0]
+Xtimesc <- scale(Xtime, center=TRUE, scale=TRUE)
+rm(Xtime0, Xtime)
+tmp <- gc()
+```
+
+In the clustering every subject and protein combination (both neat and depleted) that has measured values from all three time points are included. This means that in total `r ncol(Xtimesc)` profiles are studied (`r sum(Proteins$proteingroup!="excluded")` * `r length(unique(X$subjid))` = `r length(Proteins$proteingroup!="excluded") * length(unique(X$subjid))`).
+
+Before clustering all profiles are scaled to mean zero and unit variance. 
+
+The clustering is performed in two steps.
+
+1. k-means clustering into 500 clusters.
+2. The cluster centers from the 500 k-means clusters are clustered using hierachical clusering (complete linkage and Euclidean distance based on the scaled data).
+
+
+```{r kmeanshclust}
+km <- kmeans(t(Xtimesc), centers=500)
+h <- hclust(dist(km$centers))
+hcl5 <- cutree(h, k=5)
+hcl6 <- cutree(h, k=6)
+##Order of clusters in dendrogram
+o <- hcl6[h$order] %>% unique() %>% order()
+hcl6 <- o[hcl6]
+hcl10 <- cutree(h, k=10)
+kl <- data.frame(kmeans=km$cluster) %>% rownames_to_column("subjprot") %>% mutate(cluster5=hcl5[kmeans], cluster6=hcl6[kmeans], cluster10=hcl10[kmeans], subjid=gsub("_.*", "", subjprot), exp=gsub("_.*", "", sub("[0-9]+_", "", subjprot)), Protein=gsub(".*_", "", subjprot))
+```
+
+optimal number of clusters can be determined using e.g. the elbow method, where the within sum of squares is computed for each of the clusters and summed up.
+
+$$WSS = \sum_{k=1}^K\sum_{i \in C_k}\sum_{j=1}^p (x_{ij} - m_{kj})^2,$$
+where $K$ is the umber of clusters, $p$ is the dimenstion (length of each object, here 3) and $\mathbf{m}_k$ is the centroid of cluster $k$.
+
+As the number of clusters increase, WSS will decrease, but by plotting WSS vs k the bend in the curve (the elbow) can be used to identify the optimal number of clusters.
+
+An alternative is the silhouette method, but as this methos required as distance matrix to be computed for all objects I have only computed this based on the 500 cluster that were clustered using hierarchical clustering.
+
+Both methods are in agreement, 6 clusters is optimal.
+
+```{r optNclusters, fig.cap="Optimal number of clusters. Upper plot show within sum of squares (WSS) for the clustwers, calculated based on the infividual objects (measurements). The lower plot show the silhouette width, calculated on the hierarchical cluster, i.e. based on the clustering of the 500 clusters.", fig.show="hold", fig.width=10, out.width="90%"}
+wss <- sapply(2:10, function(k) {
+  klust <- cutree(h, k=k)[km$cluster]
+  mk <- sapply(1:k, function(i) rowMeans(Xtimesc[, klust==i]))
+  sum(sapply(1:k, function(i) sum((Xtimesc[, klust==i] - mk[,i])^2)))
+})
+
+library(factoextra)
+library(NbClust)
+##Optimal number of clusters
+clopt <- NbClust(km$centers, distance="euclidean", method="complete", index ="silhouette", min.nc=2, max.nc=10)
+plot(data.frame(k=2:10, sw=clopt$All.index, wss=wss) %>% ggplot(aes(x=k, y=wss)) + geom_point() + geom_line() + ylab("WSS")+ theme_bw())
+plot(data.frame(k=2:10, sw=clopt$All.index, wss=wss) %>% ggplot(aes(x=k, y=sw)) + geom_point() + geom_line() + ylab("Silhouette width") + theme_bw())
+```
+
+
+```{r hclust, fig.cap="Dendrogram of hierarchical clustering, six main clusters are colored.", warning=FALSE}
+nopt <- 6 
+library(dendextend)
+#color_labels(h, k=nopt)
+#plot(color_labels(h, k=nopt))
+#plot(color_labels(as.dendrogram(h),col=cbbPalette[hcl6[as.numeric(labels(h))]]))
+dend <- as.dendrogram(h)
+plot(dend %>% set("labels", ""))
+colored_bars(cbbPalette[hcl6], dend, rowLabels="", y_shift=-0.1, y_scale=0.2)
+```
+
+```{r clusters6, fig.cap="Six clusters.", dev=c("png", "pdf"), dpi=96}
+X <- X %>% left_join(kl)
+X <- X %>% group_by(subjid, exp, Protein) %>% mutate(logIscale=scale(logIntensity, center=TRUE, scale=TRUE)) %>% ungroup()
+pl <- X %>% filter(!Excluded, !is.na(cluster6)) %>% ggplot(aes(x=visitnr, y=logIscale)) + geom_line(aes(group=paste(subjid, Protein)), alpha=0.5, color="grey") + facet_wrap(~cluster6) + theme_bw() 
+##CI
+CI <- X %>% filter(!Excluded, !is.na(cluster6)) %>% group_by(visitnr, cluster6) %>% summarize(m=mean(logIscale), s=sd(logIscale), n=n(), LCL=m+qt(0.025, df=n-1)*s/sqrt(n), UCL=m+qt(0.975, df=n-1)*s/sqrt(n))
+pl + geom_line(data=CI, aes(x=visitnr, y=m, color=factor(cluster6)), size=2) + scale_color_manual("cluster6", values=cbbPalette) #geom_smooth(data=CI, aes(x=visitnr, y=m, ymin=LCL, ymax=UCL), stat="identity", color=cluster4, fill="turquoise", size=2)
+```
+
+```{r}
+## To Jamirah
+write_csv(X %>% dplyr::select(subjid, protein_id, prep_type, cluster6) %>% filter(!is.na(cluster6)) %>% distinct(), file=file.path(intermediate, "cluster6.csv"))
+```
+
+
+```{r clusters10, fig.cap="Ten clusters.", dev="png", dpi=96}
+pl <- X %>% filter(!is.na(cluster10)) %>% ggplot(aes(x=visitnr, y=logIscale)) + geom_line(aes(group=paste(subjid, Protein)), alpha=0.5, color="grey") + facet_wrap(~cluster10) + theme_bw()
+##CI
+CI <- X %>% filter(!is.na(cluster10)) %>% group_by(visitnr, cluster6) %>% summarize(cluster10=unique(cluster10), m=mean(logIscale), s=sd(logIscale), n=n(), LCL=m+qt(0.025, df=n-1)*s/sqrt(n), UCL=m+qt(0.975, df=n-1)*s/sqrt(n))
+pl + geom_line(data=CI, aes(x=visitnr, y=m, color=factor(cluster6)), size=2) + scale_color_discrete("cluster6") + scale_color_manual("cluster6", values=cbbPalette) 
+```
+
+
+```{r}
+table(kl$cluster6)
+table(kl$cluster10)
+```
+
+Note that as the protein levels are normalized per individual and protein, comparing two protein profiles using Euclidean distance correspond to using correlation. This means that very small changes for one subject and protein will be similar to large changes in another subject and protein, if the shape of the curves (the protein profile over time) are similar.
+
+```{r ntimepoints}
+X <- X %>% group_by(Protein,exp,  subjid) %>% mutate(n=n()) %>% ungroup()
+```
+
+### Are the visit profiles for a particular protein similar between patients?
+
+Identify proteins where one of the clusters is overrepresented.
+
+```{r}
+Nclust5 <- table(kl$cluster5)
+pclust5 <- Nclust5/sum(Nclust5)
+peval <- function(cl, N) {
+  pglob <- N/sum(N)
+  k <- 1:length(N)
+  n <- sapply(k, function(i) sum(cl==i))
+  p=chisq.test(n, p=pglob)$p.value
+  pi=sapply(k, function(i) phyper(sum(cl==i), N[i], sum(N[-i]), length(cl), lower.tail=FALSE))
+  p <- data.frame(matrix(c(p=p, n, pi), nrow=1))
+  names(p) <- c("p", paste0("N", k), paste0("p", k))
+  p
+}
+pkl <- kl %>% group_by(Protein, exp) %>% summarize(peval(cluster5, Nclust5)) %>% arrange(p)
+```
+
+`r sum(pkl$p<pcutoff)` proteins are identified where the proportions of the five clusters are significantly different compared to the  global distribution into the clusters.
+
+Of these proteins the number of proteins that are overrepresented in each of the clusters is as follows;
+
+```{r}
+pkl %>% filter(p<pcutoff) %>% ungroup %>%  summarize(across(starts_with("p"), ~sum(.x<pcutoff))) %>% dplyr::select(-Protein)
+prots <- lapply(paste0("p", 1:5), function(pi) pkl %>% filter(p<pcutoff, !!as.symbol(pi)<pcutoff) %>% dplyr::select(Protein, exp))
+```
+
+```{r clplot}
+prots <- lapply(prots, function(pr) pr %>% left_join(Proteins, by=c(Protein="id", exp="exp")))
+pl <- lapply(1:5, function(k) prots[[k]] %>% left_join(X) %>% mutate(name=factor(paste(Protein, exp), levels=paste(prots[[k]]$Protein, prots[[k]]$exp), labels=paste(prots[[k]]$PG.Genes, prots[[k]]$exp))) %>% ggplot(aes(x=visitnr, y=logIscale)) + geom_line(aes(group=paste(subjid, Protein), color=factor(cluster5)), alpha=0.5) + facet_wrap(~name) + theme_bw() + theme(legend.position = "none"))
+```
+
+
+```{r cl1, fig.cap="Overrepresented by cluster1.", fig.width=14, fig.height=14}
+pl[[1]]
+#CI <- pl$data %>% group_by(visitnr, name) %>% summarize(m=mean(logIscale), s=sd(logIscale), n=n(), LCL=m+qt(0.025, df=n-1)*s/sqrt(n), UCL=m+qt(0.975, df=n-1)*s/sqrt(n))
+#pl + geom_line(data=CI, aes(x=visitnr, y=m), color="blue", size=2)
+```
+
+```{r cl2, fig.cap="Overrepresented by cluster2.", fig.width=10, fig.height=10}
+pl[[2]]
+```
+
+```{r cl3, fig.cap="Overrepresented by cluster3.", fig.width=10, fig.height=10}
+pl[[3]]
+
+#CI <- pl$data %>% group_by(visitnr, name) %>% summarize(m=mean(logIscale), s=sd(logIscale), n=n(), LCL=m+qt(0.025, df=n-1)*s/sqrt(n), UCL=m+qt(0.975, df=n-1)*s/sqrt(n))
+#pl + geom_line(data=CI, aes(x=visitnr, y=m), color="blue", size=2)
+```
+
+```{r cl4, fig.cap="Overrepresented by cluster4.", fig.width=10, fig.height=10}
+pl[[4]]
+```
+
+```{r cl5, fig.cap="Overrepresented by cluster5.", fig.width=10, fig.height=10}
+pl[[5]]
+```
+
+\FloatBarrier
+
+### Cluster based on mean per protein
+
+```{r mcluster, fig.cap="Cluster based on mean scaled log intensity.", fig.show="hold", fig.width=c(10,6,6), out.width=c("100%", "50%", "50%")}
+Xprotmean <- data.frame(t(Xtimesc)) %>% rownames_to_column("subjprot") %>% mutate(subjid=gsub("_.*", "", subjprot), exp=gsub("_.*", "", sub("[0-9]+_", "", subjprot)), Protein=gsub(".*_", "", subjprot)) %>% group_by(exp, Protein) %>% summarize(across(starts_with("X"), mean), .groups="drop") %>% mutate(prot=paste(exp, Protein, sep="_"))
+Xpm <- Xprotmean %>% dplyr::select(prot, starts_with("X")) %>% column_to_rownames("prot")
+h <- hclust(dist(Xpm))
+plot(h, labels=FALSE)
+
+wss <- sapply(2:10, function(k) {
+  klust <- cutree(h, k=k)
+  mk <- sapply(1:k, function(i) colMeans(Xpm[klust==i, ]))
+  sum(sapply(1:k, function(i) sum((t(Xpm[klust==i, ]) - mk[,i])^2)))
+})
+
+##Optimal number of clusters
+clopt <- NbClust(Xpm, distance="euclidean", method="complete", index ="silhouette", min.nc=2, max.nc=10)
+data.frame(k=2:10, sw=clopt$All.index, wss=wss) %>% ggplot(aes(x=k, y=wss)) + geom_point() + geom_line() + ylab("WSS")
+data.frame(k=2:10, sw=clopt$All.index, wss=wss) %>% ggplot(aes(x=k, y=sw)) + geom_point() + geom_line() + ylab("Silhouette width")
+
+nopt <- 8
+mkl <- data.frame(mcluster2=cutree(h, k=2), mcluster8=cutree(h, k=nopt), mcluster10=cutree(h, k=10)) %>% rownames_to_column("expprot") %>% mutate(exp=gsub("_.*", "", sub("[0-9]+_", "", expprot)), Protein=gsub(".*_", "", expprot))
+```
+
+```{r}
+write_csv(mkl %>% dplyr::select(exp, Protein, mcluster8), file=file.path(intermediate, "meancluster8.csv"))
+```
+
+
+```{r mclusters8, fig.cap="Eight clusters, protein mean.", dev=c("png", "pdf"), dpi=96}
+Xprotmeanl <- Xprotmean %>% pivot_longer(c("X0", "X1", "X2"), names_to = "visit", values_to = "logIscale") %>% mutate(visit=gsub("X", "v", visit), visitnr=as.numeric(gsub("v", "", visit))) %>% left_join(mkl)
+pl <- Xprotmeanl %>% filter(!is.na(mcluster8)) %>% ggplot(aes(x=visit, y=logIscale)) + geom_line(aes(group=paste(exp, Protein)), alpha=0.5, color="grey") + facet_wrap(~mcluster8) + theme_bw()
+##CI
+CI <- Xprotmeanl %>% group_by(visit, mcluster8) %>% summarize(m=mean(logIscale), s=sd(logIscale), n=n(), ndepl=sum(exp=="depl"), nneat=sum(exp=="neat"), LCL=m+qt(0.025, df=n-1)*s/sqrt(n), UCL=m+qt(0.975, df=n-1)*s/sqrt(n), .groups="drop")
+pl + geom_line(data=CI, aes(x=visit, y=m, color=factor(mcluster8), group=mcluster8), size=2) + scale_color_discrete("mCluster8") + geom_text(data=CI %>% filter(visit=="v0"), x=2, y=-0.7, aes(label=sprintf("n=%i (d: %i, n: %i)", n, ndepl, nneat)))
+#geom_smooth(data=CI, aes(x=visitnr, y=m, ymin=LCL, ymax=UCL), stat="identity", color=cluster4, fill="turquoise", size=2)
+```
+
+
+```{r, eval=FALSE}
+library(pheatmap)
+N <- pkl %>% filter(p<pcutoff) %>% left_join(Proteins, by=c(Protein="id", exp="exp")) %>% mutate(name=paste(Protein, exp))
+protnames <- N$PG.Genes
+pheatmap(N %>%  column_to_rownames("name") %>% dplyr::select(starts_with("N")))
+
+```
+
+
+```{r, eval=FALSE}
+pl <- X %>% filter(!is.na(cluster5), paste(Protein, exp) %in% (pkl %>% head(10) %>% mutate(expprot=paste(Protein, exp)) %>% pull(expprot))) %>% ggplot(aes(x=visitnr, y=logIscale)) + geom_line(aes(group=paste(subjid, Protein)), alpha=0.5, color="grey") + facet_wrap(~Protein+exp) + theme_bw()
+##CI
+```
+
+\FloatBarrier
+
+```{r}
+table(mkl$mcluster8, mkl$exp) %>% as.data.frame() %>% pivot_wider(names_from=Var2, values_from = Freq) %>% rename(Cluster=Var1) %>% kable(caption="Number of proteins in each cluster.")
+```
+
+\FloatBarrier
+
+<!-- Association with sex -->
+
+```{r assocsex, child="../report_aux/assoc_sex.Rmd", eval=verbose>1}
+
+```
+
+
+## ARS
+
+### Logistic regression
+
+Only the IAVI cohort have ARS information and most patients in this cohort are men with subtype A1.
+
+One protein is studied at the time and logistic regression models are built to investigate the association between ARS and protein values at visits 0, 1 and 2. The models are adjusted for age and evaluated using likelihood ratio test (to investigate how much information the protein values at v0, v1 and v2 add to the model).
+
+Model 0: `ARS ~ age`
+
+Model 1: `ARS ~ age + v0 + v1 + v2`
+
+Model 1 is compared to model 0 using a likelihood ratio test (LRT).
+
+```{r ARSlogreg, fig.cap="Proteins that significantly differ between ARS and no ARS (likelihood ratio test, logistic regression).", fig.width=12, fig.height=12}
+if (!exists("lrres"))
+  lrres <- list()
+lr <- function(d) {
+  f <- glm(ARS~Age+v0+v1+v2, data=d, family="binomial");
+  f0 <- glm(ARS~Age, data=d, family="binomial")
+  anova(f, f0, test="LRT")[2,5]
+}
+lrOR <- function(d) {
+  f <- glm(ARS~Age+v0+v1+v2, data=d, family="binomial");
+  f0 <- glm(ARS~Age, data=d, family="binomial")
+  pglob <- anova(f, f0, test="LRT")[2,5]
+  data.frame(p.global=pglob, OR=exp(coef(f))[-1], confint(f)[-1,], p = coef(summary(f))[-1, "Pr(>|z|)"])
+}
+lrpc <- function(d) {
+  f <- glm(ARS~logIntensity_v0+logIntensity_v1+logIntensity_v2+PC1_v0+PC2_v0 +PC1_v1+PC2_v1+PC1_v2+PC2_v2, data=d, family="binomial");
+  f0 <- glm(ARS~+PC1_v0+PC2_v0 +PC1_v1+PC2_v1+PC1_v2+PC2_v2, data=d, family="binomial")
+  anova(f, f0, test="LRT")[2,5]
+}
+
+lrres$ARS <- Xw %>% filter(!is.na(ARS), !is.na(v0), !is.na(v1), !is.na(v2)) %>% group_by(protein_type_id) %>% summarize(p.global=lr(cur_data()))
+
+lrres$ARSPCA <- Xwpc %>% filter(!is.na(ARS), !is.na(logIntensity_v0), !is.na(logIntensity_v1), !is.na(logIntensity_v2)) %>% group_by(protein_type_id) %>% summarize(p.global=lrpc(cur_data()))
+
+sel <- lrres$ARS %>% filter(p.global<pcutoff) %>% arrange(p.global) %>% pull(protein_type_id)
+gene <- Proteins[match(sel, Proteins$protein_type_id),] %>% mutate(name=paste(PG.Genes, exp)) %>% dplyr::select(protein_type_id, name)
+gene$name <- factor(gene$name, levels=gene$name)
+X %>% filter(protein_type_id %in% sel, !is.na(ARS)) %>% left_join(gene) %>%  ggplot(aes(x=visit, y=logIntensity, color=ARS)) + geom_pirate(bars=FALSE, show.legend=TRUE) + facet_wrap(~name, scales="free_y") + theme_bw() 
+```
+
+\FloatBarrier
+
+### Linear regression
+
+Study one visit at the time, or one change between visits. The studied visits 0-2 are denoted v0, v1, v2 and the differences between visits v10=v1-v0, v20=v2-v0 and v21=v2-v1. For each of the visits or differences the association between one protein at the time and ARS is studied.
+
+Only the IAVI cohort have ARS information and most patients in this cohort are men with subtype A1.
+Linear regressions are performed separately for each time point (or difference) and protein to assess the association between protein value and ARS. Age included as a covariate in the model.
+
+Models of the form `logI ~ age + ARS` are used, where logI is the log2(intensity) at the studied visit (or a difference in log2(intensity) between two visits).
+
+```{r lmARS, warning=FALSE, message=FALSE}
+var <- "ARS" 
+ARSfile <- file.path(intermediate, "lmARS.Rds")
+if (file.exists(ARSfile)) {
+  lmres[[var]] <- readRDS(ARSfile)
+} else {
+  lmres[[var]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xw %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var="ARS", covars="Age", test="t", family="gaussian"), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+  lmres[[var]] <- lapply(lmres[[var]], function(x) x %>% left_join(Proteins, by=c(Protein="id", "exp")) %>% relocate(c("PG.Genes"), .after="Protein"))
+  saveRDS(lmres[[var]], file=ARSfile)
+}
+openxlsx::write.xlsx(lmres[[var]], file=file.path(intermediate, "lm_ARSage.xlsx"))
+openxlsx::write.xlsx(lapply(lmres[[var]], function(z) z %>% filter(grepl(var, variable))), file=file.path(intermediate, "lm_ARS.xlsx")) 
+```
+
+```{r lmARSPCA, warning=FALSE, message=FALSE, eval=FALSE}
+var <- "ARSPCA"
+ARSPCAfile <- file.path(intermediate, "lmARSPCA.Rds")
+if (file.exists(ARSPCAfile)) {
+  lmres[[var]] <- readRDS(ARSPCAfile)
+} else {
+  lmres[[var]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xwpc %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var="ARS", covars=c("Age"), test="t", family="gaussian"), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+  lmres[[var]] <- lapply(lmres[[var]], function(x) x %>% left_join(Proteins, by=c(Protein="id", "exp")) %>% relocate(c("PG.Genes"), .after="Protein"))
+  save(lmres[[var]], file=ARSfile)
+}
+openxlsx::write.xlsx(lmres[[var]], file=file.path(intermediate, "lm_ARSPCAage.xlsx"))
+openxlsx::write.xlsx(lapply(lmres[[var]], function(z) z %>% filter(grepl(var, variable))), file=file.path(intermediate, "lm_ARSPCA.xlsx"))
+```
+
+\FloatBarrier
+
+```{r lmtabs, results="asis"}
+var <- "ARS" 
+for (v in names(lmres[[var]])) { 
+  print(lmres[[var]][[v]] %>% filter(variable=="ARSYes") %>% arrange(p) %>% head() %>% dplyr::select(Protein, exp, PG.Genes, Estimate, p) %>% rename(beta=Estimate) %>% kable(caption=sprintf("Top associations between protein value at visit %s and ARS. Adjusted for PC1 and PC2.", sapply(strsplit(v, ""), function(z) paste(z[-1], collapse=" - "))), label=v))
+}
+```
+
+\FloatBarrier
+
+```{r QQARS, fig.cap="QQplots of ARS p-values. Observed p-values vs expected p-values.", fig.width=5, fig.show="hold", dpi=96, dev="png"}
+## fig.cap="QQ ARS",
+lmres[[var]] %>% purrr::reduce(full_join) %>% filter(variable=="ARSYes") %>% mutate(visit=factor(visit, names(lmres[[var]]))) %>% group_by(visit, exp) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p))) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_grid(visit~exp) + theme_bw()
+```
+
+<!-- Resten av filen finns i NBIS5800neatdeplcont.Rmd -->
+
+### PLS-DA ARS
+
+```{r}
+MLres <- list()
+```
+
+PLS-DA models are trained to predict ARS "Yes" or "No". The models are trained and evaluated in 10 5-fold cross-validations. For each test set the perforance measures error rate (ER), accuracy (acc) and AUC (area under receiver operator curve (ROC)) are computed.
+
+Models are constructed based on the following datasets;
+
+* v0 + v1 + v2
+* v0 + v10 + v20
+* v1 + v2
+* v10 + v20
+* v10
+* v20
+
+
+```{r ARSplsda, warning=FALSE, error=FALSE, message=FALSE}
+set.seed(37)
+
+library(AHIprot) ##ML functions
+
+vars <- c("Sex", "Age25", "Site", "ARS")
+phARS <- Xw %>% filter(!is.na(v0), !is.na(v1), !is.na(v2)) %>% dplyr::select(subjid, all_of(vars)) %>% filter(!is.na(ARS)) %>% distinct() %>% mutate(order=1:n())
+y <- factor(phARS$ARS)
+holdouts=index_crossval(y, 5, 10)
+
+MLres$ARS <- lapply(list(v0v1v2=c("v0", "v1", "v2"), v0v10v20=c("v0", "v10", "v20"), v1v2=c("v1", "v2"), v10v20=c("v10", "v20"), v10="v10", v20="v20"), function(v) Xw %>% left_join(phARS) %>% filter(!is.na(order)) %>% pivot_wider(id_cols=c("subjid", vars, "order"), names_from=c("exp", "Protein"), values_from=v) %>% dplyr::select(-all_of(vars)) %>% column_to_rownames("subjid") %>% arrange(order) %>% dplyr::select(-order) %>% hoPLSDA(Y=y, holdouts=holdouts))
+perf <- lapply(MLres$ARS, function(r) r$pred %>% filter(holdout) %>% group_by(h) %>% dplyr::summarize(ER=mean(pred != Y), acc=mean(pred==Y), auc={a<-try(as.numeric(auc(roc(Y~lpred))), silent=TRUE); if (inherits(a, "try-error")) NA else a}))
+```
+
+Only patients with protein values from v0, v1 and v2 and also an ARS value (Yes/No) are included in the analysis. This includes in total `r nrow(phARS)` patients, of which `r sum(phARS$ARS=="Yes")` with ARS and `r sum(phARS$ARS=="No")` without.
+
+
+```{r ARSperf, fig.width=10, fig.height=4, fig.cap="Cross-validated performance measures for the ARS PLS-DA models."}
+t(sapply(perf, colMeans, na.rm=TRUE)[-1, ]) %>% kable(caption="Average performance measures of PLS-DA models predicting ARS as computed over the 50 test sets.") 
+
+lapply(names(perf), function(v) perf[[v]] %>% mutate(subset=v)) %>% reduce(full_join) %>% mutate(subset=factor(subset, levels=names(perf))) %>%  pivot_longer(cols=c("ER", "acc"), names_to="performance") %>% ggplot(aes(x=performance, y=value, color=subset)) + geom_boxplot(outlier.size=0) + geom_quasirandom(dodge.width = 0.75, size=1) + theme_bw()
+```
+
+
+```{r ARSplsdav10v20, warning=FALSE, fig.show="hold", fig.cap="PLS-DA model based on v10 and v20. The score plot is shown for the model based on all samples. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.", out.width=c("50%", "50%", "50%", "100%")}
+v <- "v10v20"
+##Not checked for flipped directions, but seems not to be a problem in this case
+pl <- MLres$ARS[[v]]$pred %>% filter(h==0|holdout) %>% ggplot(aes(p1, p2, shape=Y, color=Y)) + scale_shape_discrete("") + xlab(sprintf("t1 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("t2 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p2','R2X']))
+
+pl + theme_bw() + geom_text(data=pl$data %>% filter(h==0), aes(label=id))
+pl + geom_point(aes(alpha=h==0)) + geom_line(data = pl$data %>% group_by(id, h==0) %>% dplyr::summarize(p1=mean(p1), p2=mean(p2), Y=unique(Y)), aes(group=id), show.legend = FALSE) + theme_bw() + scale_alpha_discrete(guide="none")
+
+##Loadings
+vip2 <- names(which(sort(MLres$ARS[[v]]$fit0@vipVn, decreasing=TRUE)>=2))
+vip18 <- setdiff(names(which(sort(MLres$ARS[[v]]$fit0@vipVn, decreasing=TRUE)>=1.8)), vip2)
+pll <- MLres$ARS[[v]]$fit0@loadingMN %>% as.data.frame() %>% rownames_to_column("varid") %>% mutate(id=gsub(".*neat_", "", gsub(".*depl_", "", varid))) %>% left_join(proteins)  %>% ggplot(aes(x=p1, y=p2, label=PG.Genes)) + geom_point() + geom_vline(xintercept=0) + geom_hline(yintercept=0) + theme_bw() + xlab(sprintf("p1 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("p2 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p2','R2X']))
+pll + geom_text_repel(data=pll$data %>% filter(id %in% vip18)) + 
+  geom_label_repel(data=pll$data %>% filter(id %in% vip2))
+# Finally, the VIP values for model trained on all samples are shown as red points and the variations in VIP from the cross-validation models are shown in boxplots.
+#MLres$ARS[[v]]$vip %>% filter(h!=0) %>% mutate(id=gsub("^v[0-9]*", "", var)) %>% left_join(proteins, by=c(id="id")) %>% mutate(var=PG.Genes) %>% ggplot(aes(x=var, y=vip)) + geom_boxplot() + geom_point(data=MLres$ARS[[v]]$vip %>% filter(h==0), color="red") + theme_bw() + theme(axis.text.x=element_text(angle=90, vjust=0.5, hjust=1, size=rel(0.8))) + xlab("") + ylab("VIP") #+ scale_x_discrete(limits=MLres$ARS[[v]]$vip %>% filter(h==0) %>% arrange(vip) %>% pull("var")), labels=substr(names(sort(MLres$ARS$fit0@vipVn, decreasing=TRUE)), 1, 8))
+```
+
+```{r ARSplsdav10, warning=FALSE, fig.show="hold", fig.cap="PLS-DA model based on v10. The score plot is shown for the model based on v10. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.", out.width=c("50%", "50%", "50%")}
+v <- "v10" 
+##Not checked for flipped directions, but seems not to be a problem in this case
+pl <- MLres$ARS[[v]]$pred %>% filter(h==0|holdout) %>% ggplot(aes(p1, p2, shape=Y, color=Y)) + scale_shape_discrete("") + xlab(sprintf("t1 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("t2 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p2','R2X']))
+pl + theme_bw() + geom_point() #geom_text(data=pl$data %>% filter(h==0), aes(label=id))
+pl + geom_point(aes(alpha=h==0)) + geom_line(data = pl$data %>% group_by(id, h==0) %>% dplyr::summarize(p1=mean(p1), p2=mean(p2), Y=unique(Y)), aes(group=id), show.legend = FALSE) + theme_bw() + scale_alpha_discrete(guide="none")
+
+##Loadings
+vip2 <- names(which(sort(MLres$ARS[[v]]$fit0@vipVn, decreasing=TRUE)>=2))
+vip18 <- setdiff(names(which(sort(MLres$ARS[[v]]$fit0@vipVn, decreasing=TRUE)>=1.8)), vip2)
+pll <- MLres$ARS[[v]]$fit0@loadingMN %>% as.data.frame() %>% rownames_to_column("varid") %>% mutate(id=gsub(".*neat_", "", gsub(".*depl_", "", varid))) %>% left_join(proteins)  %>% ggplot(aes(x=p1, y=p2, label=PG.Genes)) + geom_point() + geom_vline(xintercept=0) + geom_hline(yintercept=0) + theme_bw() + xlab(sprintf("p1 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("p2 (%.2f%%)", 100*MLres$ARS[[v]]$fit0@modelDF['p2','R2X']))
+pll + geom_text_repel(data=pll$data %>% filter(id %in% vip18)) + 
+  geom_label_repel(data=pll$data %>% filter(id %in% vip2))
+```
+
+
+```{r ARSplsdav10vip, warning=FALSE, fig.show="hold", fig.cap="PLS-DA model based on v10, VIP values. Red point are for the full model and boxplot show distribution for cross-validation models.", out.width=c("100%")}
+#vip <- MLres$ARS$v10v20$vip %>% mutate(id=gsub(".*neat_", "", gsub(".*depl_", "", var)), visit=gsub("_.*", "", var)) %>% left_join(proteins, by=c(id="id")) %>% mutate(id2=paste(substr(ifelse(is.na(PG.Genes), id, PG.Genes), 1, 10), exp, visit))
+vip <- MLres$ARS$v10$vip %>% mutate(id=gsub(".*neat_", "", gsub(".*depl_", "", var)), exp=gsub("_.*", "", var)) %>% left_join(Proteins, by=c("id", "exp")) %>% mutate(id2=paste(substr(ifelse(is.na(PG.Genes), id, PG.Genes), 1, 10), exp))
+prord <- vip %>% filter(h==0) %>% arrange(-vip) %>% pull("id2")
+prord <- prord[1:20]
+pl <- vip %>% filter(id2 %in% prord, !is.na(id2)) %>% mutate(protein=factor(id2, levels=prord)) %>% ggplot(aes(x=protein, y= vip))
+pl <- pl + geom_boxplot(data=pl$data %>% filter(h!=0))
+pl + geom_point(data=pl$data %>% filter(h==0), color="red") + theme(axis.text.x = element_text(angle=90, vjust=0.5)) + theme_bw() + theme(axis.text.x=element_text(angle=90, vjust=0.5, hjust=1))
+```
+
+```{r ARSv10KEGG, fig.cap="Pathway analysis based on PLS-DA VIP-values for the ARS model based on v10.", fig.show="hold", out.width="50%", eval=FALSE}
+vip0 <- vip %>% filter(h==0)
+prots <- vip0$vip
+names(prots) <- vip0$Protein
+prots <- sort(prots, decreasing = TRUE)
+##Remove duplicates
+prots <- prots[!duplicated(names(prots))]
+kk <- gseKEGG(geneList = prots,organism="hsa", minGSSize = 3, maxGSSize = 300, pvalueCutoff = 0.05, pAdjustMethod = "none", keyType = "uniprot", scoreType="pos")
+dotplot(kk, title="ARS v10, KEGG pathways", color="pvalue")
+cnetplot(kk)
+
+#library("org.Hs.eg.db", character.only=TRUE)
+#go <-  gseGO(geneList = prots,organism="hsa", minGSSize = 3, maxGSSize = 300, pvalueCutoff = 0.05, pAdjustMethod = "none", keyType = "uniprot", scoreType="pos")
+```
+
+\FloatBarrier
+
+### Longitudinal profiles for selected ARS associated proteins
+
+Select 20 proteins with highest VIP in v10 model predicting ARS.
+
+```{r longprofileARS, fig.cap="Longitudinal profiles of ARS associated proteins (top 20 according to VIP in v10 PLS-DA model).", fig.width=14, fig.height=14}
+vip <- MLres$ARS$v10$vip %>% mutate(id=gsub(".*neat_", "", gsub(".*depl_", "", var)), exp=gsub("_.*", "", var)) %>% left_join(Proteins, by=c("id", "exp")) %>% filter(h==0) %>% arrange(-vip) %>% head(20)
+vip %>% left_join(X, by=c("protein_type_id")) %>% filter(!is.na(ARS)) %>% mutate(name=paste(protein_type_id, PG.Genes, sep="/")) %>% ggplot(aes(x=visitnr, y=logIntensity, group=subjid, color=ARS)) + geom_line() + facet_wrap(~name, scales="free_y") + theme_bw()
+```
+
+
+\FloatBarrier
+
+## CD4 (absolute count)
+
+### Time to event
+
+```{r CV}
+## Clinical variables; VL, CD4 (abs and percent)
+
+vload <- readRDS(file.path(intermediate, "vload.Rds"))
+vload <- vload %>% left_join(clinc, by="subjid", suffix=c("", ".clinc")) %>%
+  mutate(Edi=if_else(is.na(Edi), edi, Edi),
+         artstart_date=if_else(!is.na(artstart_date.clinc), artstart_date.clinc, artstart_date))
+## Days since Edi
+vload <- vload %>% mutate(day = as.numeric(difftime(visitdate, Edi, units = "days")), ART=ifelse(is.na(artstart_date), FALSE, visitdate>artstart_date))
+
+##Clinical value
+## Exclude ART
+CV <- lapply(c(VL="vload", CD4abs="cd4_abs", CD4percent="cd4percent"), function(var) vload %>% filter(day>=0, !is.na(!!as.symbol(var))) %>% distinct() %>% filter(!ART))
+```
+
+CD4 abs is measured several times for all patients, but the number of measurements varies between the patients. All cd4_abs measurements (after Edi) are shown in figure \@ref(fig:CD4persubj) and all measurements during first year after Edi are shown in \@ref(fig:CD4persubj1y).
+
+```{r CD4persubj, fig.cap="CD4 absolute over time. Cutoffs 200, 350 and 500 are shown as dotted lines.", warning=FALSE, fig.height=10, fig.width=10}
+cd4lim <- range(CV$CD4abs$cd4_abs)
+CV$CD4abs %>% ggplot(aes(x=day, y=cd4_abs)) + geom_hline(yintercept=c(200, 350, 500), linetype=3) + geom_point() + geom_line() + facet_wrap(~subjid) + theme_bw() + theme(legend.position = "top") + ylim(c(0,ceiling(cd4lim[2]/50)*50))
+```
+
+```{r CD4persubj1y, fig.cap="CD4 absolute over the first year after Edi. Cutoffs 200, 350 and 500 are shown as dotted lines.", warning=FALSE, fig.height=10, fig.width=10, dependson="CV"}
+CV$CD4abs %>% ggplot(aes(x=day, y=cd4_abs)) + geom_hline(yintercept=c(200, 350, 500), linetype=3) + geom_point() + geom_line() + facet_wrap(~subjid) + theme_bw() + theme(legend.position = "top") + coord_cartesian(ylim=c(0,ceiling(cd4lim[2]/50)*50), xlim=c(0, 366))
+```
+
+```{r CD4100, fig.cap="CD4 counts first 100 days."}
+CD4stats <- vload %>% filter(!is.na(cd4_abs)) %>% group_by(subjid) %>%
+  summarize(Peak=max(cd4_abs[day<=6*7]), 
+            "Days to peak"=min(day[cd4_abs==Peak]), 
+            Nadir=min(cd4_abs[day>`Days to peak`&day<=7*12]), 
+            "Days to nadir"=min(day[cd4_abs==Nadir]), 
+            "Days to EIA"=day[which(Timepoint==2)], .groups = "drop")
+
+lCD4stats <- pivot_longer(CD4stats, cols=2:6) %>% mutate(x=c(Peak=median(CD4stats$`Days to peak`), Nadir=median(CD4stats$`Days to nadir`), "Days to peak"=3.3, "Days to EIA"=3.4, "Days to nadir"=3.5)[name]) %>% filter(is.finite(value))
+med <- lCD4stats %>% group_by(name, x) %>% mutate(value=ifelse(name %in% c("Nadir", "Peak"), log10(value), value)) %>% summarize(med=median(value), mx=max(value))
+
+pl <- vload %>% filter(day>0, day<500, !is.na(cd4_abs)) %>% ggplot(aes(x=day, y=log10(cd4_abs))) + geom_line(aes(group=subjid), color="grey") + theme_bw()  + coord_cartesian(xlim=c(0,100), expand=FALSE)
+pl <- pl + geom_boxplot(data=lCD4stats %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=log10(value), color=name), width=3.5, alpha=0) + geom_text(data=med %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=mx+0.05, label=sprintf("%.1f", med), color=name), vjust=0)
+pl <- pl + geom_boxplot(data=lCD4stats %>% filter(grepl("Day", name)), aes(y=x, x=value, color=name), alpha=0) + geom_text(data=med %>% filter(grepl("Day", name)), aes(y=x, x=mx+2, label=sprintf("%.1f", med), color=name), hjust=0)
+pl + xlab("Days since EDI") + ylab(bquote(CD4~absolute~count)) + scale_color_discrete("")
+```
+
+
+```{r CD41y, fig.cap="Viral load first year."}
+pl <- vload %>% filter(day>0, day<500, !is.na(cd4_abs)) %>% ggplot(aes(x=day, y=log10(cd4_abs))) + geom_line(aes(group=subjid), color="grey") + theme_bw()  + coord_cartesian(xlim=c(0,365.25), expand=FALSE)
+pl <- pl + geom_boxplot(data=lCD4stats %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=log10(value), color=name), width=10, alpha=0) + geom_text(data=med %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=mx+0.05, label=sprintf("%.1f", med), color=name), vjust=0)
+pl <- pl + geom_boxplot(data=lCD4stats %>% filter(grepl("Day", name)), aes(y=x, x=value, color=name), alpha=0) + geom_text(data=med %>% filter(grepl("Day", name)), aes(y=x, x=mx+2, label=sprintf("%.1f", med), color=name), hjust=0)
+pl + xlab("Days since EDI") + ylab(bquote(CD4~absolute~count)) + scale_color_discrete("")
+```
+
+
+
+
+\FloatBarrier
+
+Cox regression, Kaplan-Merier and logrank analyses are performed with time to first event (counting from Edi or a time point after Edi, e.g. 14 days of 6 weeks) and censoring at last time point before ART (or last observed time point if no ART).
+
+Studied events;
+
+* CD4_500 Time to cd4_abs<500 from Edi
+* CD4_500_14 Time to cd4_abs<500 from Edi but only counting events after 14 days
+* **CD4_500_6w** Time to cd4_abs<500 from 6 weeks after Edi
+* CD4_350 Time to cd4_abs<350 from Edi
+* CD4_350_14 Time to cd4_abs<350 from Edi but only counting events after 14 days
+* CD4_350_6w Time to cd4_abs<350 from 6 weeks after Edi
+* CD4_200_6w Time to cd4_abs<200 from 6 weeks after Edi
+
+* **CD4_nadir12w** Time to CD4 nadir (within 12w from Edi)
+* CD4_peak12w_6w Time to cd4_abs peak value between 6w and 12w after Edi
+* **CD4_peaknadir12w** Time to cd4_abs peak value from nadir within first 12w after Edi
+* **CD4_g500nadir12w** Time to cd4_abs>500 from time of CD4 nadir, counting time from Edi
+
+For CD4 peak and nadir, limit the follow-up to a maximum of 12 weeks , i.e. find peak and nadir within the first 12 weeks after Edi.
+
+Other outcomes;
+
+* **nadir12w** CD4 nadir value (lowest value in the first 12w after Edi)
+* **peak6w12w** CD4 peak value (after 6w, but within 12w after Edi)
+* **peaknadir12w** CD4 peak value (after nadir, but within 12w after Edi)
+
+
+\FloatBarrier
+
+### Kaplan-Meier and logrank
+
+The events are studied using Kaplan-Meier curves and also the potential difference between cohorts investigated with logrank test (Table \@ref(tab:CD4logrank)).
+
+```{r CD4surv, warning=FALSE, dependson="CV"}
+CD4surv <- CV$CD4abs %>% group_by(subjid) %>% 
+  summarize(mx=max(day), 
+            ## CD4 abs < 500/350
+            CD4_500=min(day[cd4_abs<500]), 
+            CD4_350=min(day[cd4_abs<350]), 
+            ## CD4 abs < 500/350 after more than 14 days
+            CD4_500_14=min(day[cd4_abs<500&day>14]),
+            CD4_350_14=min(day[cd4_abs<350&day>14]),
+            ## CD4 abs < 500/350/200, counting from 6 weeks
+            CD4_500_6w=min(day[cd4_abs<500&day>=42]),
+            CD4_350_6w=min(day[cd4_abs<350&day>=42]),
+            CD4_200_6w=min(day[cd4_abs<200&day>=42]),
+            
+            nadir12w = min(cd4_abs[day<=84]),
+            CD4_nadir12w=day[day<=(84)][which.min(cd4_abs[day<=84])],
+            peak6w12w=max(cd4_abs[day>=42&day<=84]),
+            CD4_peak6w12w=if (any(day>=42&day<=84)) day[day>=42][which.max(cd4_abs[day>=42&day<=84])] else NA,
+            peaknadir12w=max(cd4_abs[day>CD4_nadir12w&day<=84]),
+            CD4_peaknadir12w=if (any(day>CD4_nadir12w&day<=84)) day[day>CD4_nadir12w][which.max(cd4_abs[day>CD4_nadir12w&day<=84])] else NA,
+            
+            #CD4_g500_nadir=min(day[cd4_abs>500&day>CD4_nadir12w]),
+            CD4_g500nadir12w=min(day[cd4_abs>500&day>CD4_nadir12w]) )#,
+            #CD4_g500=min(day[cd4_abs>500&day>CD4_nadir4m])) %>%
+#  mutate(day_nadir12w=CD4_nadir12w)
+# CD4surv0 <- CD4surv %>%
+#   mutate(across(c(matches("CD4_[0-9]{3}"), matches("CD4_peak"), CD4_g500_nadir), .fns=list(event=~1*is.finite(.), day=~ifelse(is.finite(.), ., mx)), .names="{.fn}_{.col}")) %>%
+#   mutate(across(matches("day_.*_6w"), ~.-42)) %>%
+#   mutate(day_CD4_g500_nadir=day_CD4_g500_nadir-CD4_nadir4m)
+CD4surv <- CD4surv %>% pivot_longer(col=starts_with("CD4_"), names_to="var", values_to="time")
+CD4surv <- CD4surv %>% mutate(event=1*is.finite(time), time=ifelse(is.finite(time), time, mx)) %>% mutate(time=ifelse(grepl("6w", var), time-42, #ifelse(var=="CD4_g500_nadir", time - daynadir4m,
+                                              time))
+CD4surv <- CD4surv %>% left_join(clinc)
+library(survival)
+library(survminer)
+```
+
+**Definition fast/slow progression**
+
+Fast progressors are patients that reach CD4 below 500 within one year from Edi (not counting measurements within the first 6 weeks).
+
+Slow progressors are patients that one year after Edi still have not reached CD4 below 500.
+
+```{r CD4groups}
+##CD4 groups to Mun-Gwan
+CD4l5006w <- CD4surv %>% filter(var=="CD4_500_6w") %>% dplyr::select(subjid, time, event) %>% mutate(group_CD4_500_6w=cut(time, quantile(time, c(0, .25,.75, 1)), include.lowest = TRUE))
+CD4l5006w <- CD4l5006w %>% mutate(progression=ifelse(event==1, ifelse(time<=(365-42), "fast", "slow"), ifelse(time>(365-42), "slow", NA)))
+write_csv(CD4l5006w, file = file.path(intermediate, "groups_CD4_500_6w.csv"))
+X <- X %>% left_join(CD4l5006w %>% dplyr::select(subjid, progression), by="subjid")
+```
+
+```{r lmprogress, warning=FALSE, message=FALSE}
+var <- "progression" 
+progressfile <- file.path(intermediate, "lmprogression.Rds")
+if (file.exists(progressfile)) {
+  lmres[[var]] <- readRDS(progressfile)
+} else {
+  lmres[[var]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xw %>% left_join(CD4l5006w, by="subjid") %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var=var, covars=c("Age", "Sex", "Cohort"), test="t", family="gaussian"), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+  lmres[[var]] <- lapply(lmres[[var]], function(x) x %>% left_join(Proteins, by=c(Protein="id", "exp")) %>% relocate(c("PG.Genes"), .after="Protein"))
+  saveRDS(lmres[[var]], file=progressfile)
+}
+openxlsx::write.xlsx(lmres[[var]], file=file.path(intermediate, "lm_progresscovars.xlsx"))
+openxlsx::write.xlsx(lapply(lmres[[var]], function(z) z %>% filter(grepl(var, variable))), file=file.path(intermediate, "lm_progress.xlsx")) 
+```
+
+
+
+
+```{r CD4peaknadir, fig.cap="CD4 over the first year after Edi. The first 12 weeks are marked green and nadir and peak (after nadir) within this period are marked blue/red.", fig.width=8, fig.height=12, dependson="CV"}
+CV$CD4abs %>% ggplot(aes(x=day, y=cd4_abs)) + geom_rect(data=NULL,aes(xmin=0*7,xmax=84,ymin=-Inf,ymax=Inf),fill="lightgreen", alpha=0.2) + geom_point() + geom_line() + facet_wrap(~subjid, ncol=5) + theme_bw() + theme(legend.position = "top") + scale_x_continuous("weeks", breaks=seq(0,366, 6*7), labels=seq(0,52,6)) + coord_cartesian(ylim=c(0,ceiling(cd4lim[2]/50)*50), xlim=c(0, 366)) + geom_point(data=CD4surv %>% filter(var=="CD4_nadir12w"), aes(x=time, y=nadir12w), color="blue") + geom_point(data=CD4surv %>% filter(var=="CD4_peaknadir12w"), aes(x=time, y=peaknadir12w), color="red")
+```
+
+
+```{r CD4logrank}
+CD4surv %>% group_by(var) %>% summarize(chisq=survdiff(Surv(time, event)~Cohort, data=cur_data())$chisq) %>% mutate(p=pchisq(chisq, df=1, lower.tail = FALSE)) %>% kable(caption="Logrank test evaluating difference between cohorts in terms of time to the different CD4 related events.")
+```
+
+
+```{r CD4surv500, fig.cap="Time to CD4 count < 500.", out.width="49%", fig.height=8, fig.show="hold", eval=FALSE}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_500"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+```{r CD4surv5006w, fig.cap="Time to CD4 count < 500, counting from 6 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold"}
+fit <- survfit(Surv(time/365.25, event) ~ 1, data=CD4surv %>% filter(var=="CD4_500_6w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=1, xlab="Years", conf.int=FALSE)
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,1), break.time.by=0.2, xlab="Years", conf.int=FALSE)
+fit <- survfit(Surv(time/365.25, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_500_6w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=1, xlab="Years", legend.labs=trimws(sub("Cohort=", "", sub("Sex=", "", names(fit$strata)))))
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,1), break.time.by=0.2, xlab="Years", legend.labs=trimws(sub("Cohort=", "", sub("Sex=", "", names(fit$strata)))))
+```
+
+```{r CD4surv3506w, fig.cap="Time to CD4 count < 350, counting from 6 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold", eval=FALSE}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_350_6w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+fit <- survfit(Surv(time, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_350_6w"))
+ggsurvplot(fit, risk.table=FALSE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=FALSE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+```{r CD4surv2006w, fig.cap="Time to CD4 count < 200, counting from 6 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold", eval=FALSE}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_200_6w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+fit <- survfit(Surv(time, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_200_6w"))
+ggsurvplot(fit, risk.table=FALSE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=FALSE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+```{r CD4survpeak, fig.cap="Time to CD4 count peak value, counting from 6 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold", eval=FALSE}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_peak_6w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days") 
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+fit <- survfit(Surv(time, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_peak_6w"))
+ggsurvplot(fit, risk.table=FALSE, break.time.by=365, xlab="Days") 
+ggsurvplot(fit, risk.table=FALSE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+```{r CD4survnadir12w, fig.cap="Time to CD4 count nadir value within the first 12 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold", eval=FALSE}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_nadir12w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days") 
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+fit <- survfit(Surv(time, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_nadir12w"))
+ggsurvplot(fit, risk.table=FALSE, break.time.by=365, xlab="Days") 
+ggsurvplot(fit, risk.table=FALSE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+```{r CD4survpeaknadir12w, fig.cap="Time to CD4 count peak after nadir value within the first 12 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold", eval=FALSE}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_peaknadir12w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days") 
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+fit <- survfit(Surv(time, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_peaknadir12w"))
+ggsurvplot(fit, risk.table=FALSE, break.time.by=365, xlab="Days") 
+ggsurvplot(fit, risk.table=FALSE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+```{r CD4survg500nadir, fig.cap="Time to CD4 count > 500, counting from CD4 nadir (day of lowest value within first 12 weeks).", out.width="49%", fig.height=8, fig.show="hold"}
+fit <- survfit(Surv(time, event) ~ 1, data=CD4surv %>% filter(var=="CD4_g500nadir12w"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+fit <- survfit(Surv(time, event) ~ Cohort + Sex, data=CD4surv %>% filter(var=="CD4_g500nadir12w"))
+ggsurvplot(fit, risk.table=FALSE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=FALSE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+
+\FloatBarrier
+
+<!-- ### CD4 clusters -->
+
+```{r CD4absfile, eval=TRUE, cache=FALSE}
+if (!file.exists("splineclusterCD4abs.Rmd")) {
+  template1 <- readLines("splineclusterXXXid.Rmd")
+  template1 <- gsub("XXX", "cd4_abs", gsub("XXXid", "CD4abs", gsub("XXXlongname", "CD4 count", template1)))
+  template1[which(grepl("^timewindows <- ", template1))] <- "timewindows <- as.list(as.data.frame(t(cbind(min=rep(c(6,14)*7, each=3), max=rep(52*(1:3)*7, 2)))))"
+  template1[which(grepl("^names\\(timewindows\\)", template1))] <- "names(timewindows) <- sapply(timewindows, function(lmt) paste0(paste(lmt/7, collapse=\"-\"), \"w\"))"
+  writeLines(template1, "splineclusterCD4abs.Rmd")
+}
+
+if (!file.exists("evalclusterCD4abs.Rmd")) {
+  template2 <- readLines("evalclusterXXXid.Rmd")
+  template2 <- gsub("XXX", "cd4_abs", gsub("XXXid", "CD4abs", gsub("XXXlongname", "CD4 count", template2)))
+  template2 <- gsub("CCC", "6-52w", gsub("CCCid", "cl652w", template2))
+  writeLines(template2, "evalclusterCD4abs.Rmd")
+}
+```
+
+```{r CD4abssplineclust, child="../report_aux/splineclusterCD4abs.Rmd", eval=FALSE}
+
+```
+
+```{r CD4absevalclust, child="../report_aux/evalclusterCD4abs.Rmd", eval=FALSE}
+
+```
+
+### Cox regression to investigate association with protein values
+
+One protein is studied at the time and in the cox regression protein is included as independent variable together with a set of covariates, one of the following sets;
+
+* age **and Cohort**
+* age, gender **and Cohort**
+* age, gender, subtype A1
+* age, gender, subtype A1 and ARS
+
+Instead of including all different subtypes, only subtype A1 or other is included as variable. In the data set there are
+
+`r kable(table(clinc$Subtype))`
+
+```{r Xl}
+Xl <- Xw %>% pivot_longer(paste0("v", c(0,1,2,10,20,21)), names_to="visit", values_to="logIntensity") %>% filter(!is.na(logIntensity))
+```
+
+```{r coxmod}
+coxmod <- function(df, time, event, x="logIntensity", covars="Age") {
+  f <- coxph(as.formula(sprintf("Surv(%s, %s) ~ %s", time, event, paste(c(x, covars), collapse=" + "))), data=df)
+  tab <- coef(summary(f)) %>% as.data.frame(check.names=FALSE) %>% transmute(HR=exp(coef), HR.low=exp(coef-qnorm(0.975)*`se(coef)`), HR.high=exp(coef+qnorm(0.975)*`se(coef)`), p=`Pr(>|z|)`) %>% rownames_to_column("variable")
+  ##Maximum iterations is 20
+  if (f$iter>20)
+    tab[, -1] <- NA
+  #  if (any(tab$p==0)) {
+  #    if (any(summary(f)$sctest/tab$p
+  #  }
+  tab
+}
+adjvars <- list(IAVI = list(a="Age", ag=c("Age", "Sex"), ags=c("Age", "Sex", "A1"), agsa=c("Age", "Sex", "A1", "ARS")), 
+                Durban = list(a="Age"),
+                both = list(a=c("Cohort", "Age"), ag=c("Cohort", "Age", "Sex")))
+Xl <- Xl %>% mutate(A1=1*(Subtype=="A1"))
+```
+
+```{r coxres, warning=FALSE}
+CD4coxresfile <- file.path(intermediate, "CD4_Cox_Cohort.Rds")
+if (file.exists(CD4coxresfile)) {
+  CD4coxres <- readRDS(CD4coxresfile)
+} else {
+  
+  chrt <- list(both=c("Durban", "IAVI"), IAVI="IAVI", Durban="Durban")
+  
+  CD4coxres <- sapply(names(chrt), function(ch) Xl %>% left_join(CD4surv) %>% filter(!is.na(var), !is.na(logIntensity), Cohort %in% chrt[[ch]]) %>% group_by(var, visit, Protein, exp) %>% filter(n()>5, sum(event)>5, sd(logIntensity, na.rm=TRUE)!=0) %>% summarize(avelogI=mean(logIntensity), do.call("rbind", sapply(adjvars[[ch]], function(avars) coxmod(df=cur_data(), time="time", event="event", x="logIntensity", covars=avars) %>% mutate(avars=paste(avars, collapse="")), simplify=FALSE, USE.NAMES=TRUE)), .groups="drop"), simplify=FALSE, USE.NAMES=TRUE)
+  
+  saveRDS(CD4coxres, file=CD4coxresfile)
+}
+CD4vars <- c("CD4_500_6w", "CD4_nadir12w", "CD4_peaknadir", "CD4_g500nadir")
+CD4coxres <- do.call("rbind", lapply(names(CD4coxres), function(ch) 
+  CD4coxres[[ch]] %>% mutate(Cohort=ch)))
+```
+
+
+```{r}
+visits <- paste0("v", c(0,1,2,10,20,21)) 
+```
+
+```{r CD4survQQ, fig.cap="QQ plot of p-values for CD4 Cox regression for **neat**. Observed p-values vs expected p-values.", warning=FALSE, fig.width=10, fig.height=8}
+pldata <- CD4coxres %>% filter(variable == "logIntensity", var %in% CD4vars) %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars, exp, Cohort) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ungroup()
+pldata %>% filter(exp=="neat") %>% ggplot(aes(x=-log10(exp.p), y=-log10(p), color=paste(Cohort, avars))) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_grid(var~visit) + theme_bw() + geom_line() 
+```
+
+
+```{r CD4survQQDdepl, fig.cap="QQ plot of p-values for CD4 Cox regression for **depleted**. Observed p-values vs expected p-values.", fig.width=10, fig.height=8, warning=FALSE}
+pldata %>% filter(exp=="depl") %>% ggplot(aes(x=-log10(exp.p), y=-log10(p), color=paste(Cohort, avars))) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_grid(var~visit) + theme_bw() + geom_line()  
+```
+
+```{r MACD4, fig.cap="CD4<500 (after 6w), ln(HR) vs average log intensity (or delta log intensity).", fig.width=10, fig.height=10}
+CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity") %>% ggplot(aes(x=avelogI, y=log(HR), color=exp)) + geom_point() + facet_grid(paste(Cohort, avars)~visit, scale="free") + theme_bw()
+```
+
+```{r forestplotHR}
+forestplotHR <- function(res, pcutoff, coef="estimate", pvar="p.value") {
+  ## Significant in either cohort
+  nm <- res %>% filter(!!as.symbol(pvar) <= pcutoff) %>% pull("Protein") %>% unique()
+  res <- res %>% filter(Protein %in% nm)
+  ##Arrange according to IAVI estimates
+  nm <- res %>% filter(Cohort=="IAVI", avars=="AgeSexA1ARS") %>% arrange(!!as.symbol(coef)) %>% pull("Protein")
+  res <- res %>% mutate(name=factor(Protein, levels=nm)) #%>% filter(p.value <= pcutoff)
+  
+  pl <- res %>% ggplot(aes(x=name, y=!!as.symbol(coef), color=paste(Cohort, avars), shape=!!as.symbol(pvar)<=pcutoff)) + geom_pointrange(aes(ymin=low, ymax=high), position=position_dodge(width=0.4), size=0.4) + scale_shape_manual("", values=c("TRUE"=15, "FALSE"=19), labels=c("significant", "non-significant"))
+  pl + scale_x_discrete("", breaks=levels(pl$data$name), labels=substr(pl$data[match(levels(pl$data$name), pl$data$name), ][["PG.Genes"]], 1, 10)) + geom_hline(yintercept=0) + coord_flip()
+}
+CD4coxres <- CD4coxres %>%left_join(Proteins, by=c(Protein="id", exp="exp"))
+```
+
+
+```{r CD4forestv0, fig.cap="CD4<500, 6w. v0", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v0"
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r CD4forestv1, fig.cap="CD4<500, 6w. v1", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v1"
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r CD4forestv2, fig.cap="CD4<500, 6w. v2", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v2"
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r CD4forestv10, fig.cap="CD4<500, 6w. v10", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v10"
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r CD4forestv20, fig.cap="CD4<500, 6w. v20", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v20"
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r CD4forestv21, fig.cap="CD4<500, 6w. v21", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v21"
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(CD4coxres %>% filter(var=="CD4_500_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+
+```{r coxtabs, eval=TRUE}
+##Combine neat and depl in same tab
+##And only CD4vars
+coxtab <- CD4coxres %>% filter(variable == "logIntensity", var %in% CD4vars) %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars, Cohort)  %>% dplyr::select(-variable) %>% mutate(q=p.adjust(p)) %>% arrange(p) %>% #left_join(Proteins, by=c(Protein="Protein", exp="exp")) %>% 
+  relocate(c("PG.Genes"), .after="Protein") %>% relocate(avars, .after="visit")
+tabkeys <- coxtab %>% group_keys() 
+coxtabs <- coxtab %>% group_split(.keep=FALSE)
+names(coxtabs) <- gsub("subtype", "s", apply(tabkeys, 1, paste, collapse="."))
+```
+
+```{r oldcoxtabs, eval=FALSE}
+coxtab <- CD4coxres %>% filter(variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars, Cohort, exp)  %>% dplyr::select(-variable) %>% mutate(q=p.adjust(p)) %>% arrange(p) %>% #left_join(Proteins, by=c(Protein="Protein", exp="exp")) %>% 
+  relocate(c("PG.Genes"), .after="Protein") %>% relocate(avars, .after="visit")
+tabkeys <- coxtab %>% group_keys() 
+coxtabs <- coxtab %>% group_split(.keep=FALSE)
+names(coxtabs) <- gsub("subtype", "s", apply(tabkeys, 1, paste, collapse="."))
+```
+
+```{r CD4coxtabssave, warning=FALSE, eval=TRUE}
+coxtab %>% filter(q<0.05) %>% arrange(var, visit, avars) %>% mutate(across(c("p", "q"), ~sprintf("%.3g", .)), across(where(is.numeric), ~sprintf("%.3f", .))) %>% kable(caption="Significant CD4 Cox regression results, based on all samples.") %>% kable_styling(font_size=8) 
+
+write_xlsx(coxtabs, path=file.path(intermediate, "CD4_Coxtabs.xlsx")) 
+```
+
+<!-- The Durban and IAVI cohorts are also studied separately. -->
+  
+```{r Cohortcoxres, warning=FALSE, eval=FALSE}
+cohortcoxresfile <- file.path(intermediate, "CD4_Cox_Cohort.Rds")
+if (file.exists(cohortcoxresfile)) {
+  coxrescohort <- readRDS(cohortcoxresfile)
+} else {
+  ##Adjust for age, but no other adjustments
+  coxrescohort <- Xl %>% filter(!is.na(Cohort)) %>% left_join(CD4surv) %>% group_by(Cohort, var, visit, Protein, exp) %>% summarize(do.call("rbind", sapply(adjvars[1], function(avars) coxmod(df=cur_data(), time="time", event="event", x="logIntensity", covars=avars) %>% mutate(avars=paste(avars, collapse="")), simplify=FALSE, USE.NAMES=TRUE)), .groups="drop")
+  saveRDS(coxrescohort, file=coxresfile)
+}
+```
+
+```{r CohortCD4survQQ, fig.cap="QQ plot of p-values for Cox regression for CD4 events, separately for Durban and IAVI cohorts. Adjust for age. Observed p-values vs expected p-values.", fig.width=10, fig.height=12, eval=FALSE}
+pldata <- coxrescohort %>% left_join(Proteins, by=c("id", "exp")) %>% filter(p>1e-20, variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars, exp, Cohort) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ungroup() 
+pldata %>% ggplot(aes(x=-log10(exp.p), y=-log10(p), color=Cohort)) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_grid(var~visit) + theme_bw() + geom_line() 
+```
+
+```{r cohortcoxtabs, eval=FALSE}
+coxrescohort %>% filter(variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, Cohort, avars)  %>% dplyr::select(-variable) %>% mutate(q=p.adjust(p)) %>% arrange(p) %>% left_join(Proteins, by=c(Protein="id", exp="exp")) %>% relocate(c("PG.Genes"), .after="Protein") %>% relocate(avars, .after="visit") %>% filter(q<0.05) %>% arrange(var, visit, avars) %>% mutate(across(c("p", "q"), ~sprintf("%.3g", .)), across(where(is.numeric), ~sprintf("%.3f", .))) %>% kable(caption="Significant CD4 Cox regression results, cohorts are analyzed separately.") %>% kable_styling(font_size=8) 
+```
+
+\FloatBarrier
+
+### Longitudinal profiles for protein associated with disease progression
+
+Based on the Cox regression predicitng time to CD4<500 after 6 weeks, adjusting fo age, cohort and sex, select significant proteins.
+
+```{r selCD45006w}
+sel <- CD4coxres %>% filter(var=="CD4_500_6w", Cohort=="both", avars=="CohortAgeSex", variable=="logIntensity") %>% filter(p<pcutoff) %>% dplyr::select(protein_type_id, PG.Genes, visit) %>% distinct()
+
+n <- sel %>% group_by(visit) %>% summarize(n=n()) %>% column_to_rownames("visit") %>% t()
+pls <- sel %>% dplyr::rename(contrast=visit) %>% left_join(X, by=c("protein_type_id")) %>% mutate(name=paste(protein_type_id, PG.Genes, sep="/")) %>% group_by(contrast) %>% summarize(n=n(), pl=list(cur_data() %>% ggplot(aes(x=visitnr, y=logIntensity, group=subjid, color=progression)) + geom_line() + facet_wrap(~name, scales="free_y") + theme_bw()))
+```
+
+
+```{r genplotselCD45006w, results="asis"}
+template <- "```{r longprofileCD4500{{v}}, fig.cap=\"Longitudinal profiles of proteins at {{v}} associated with time to CD4 below 500.\", fig.width={{w}}, fig.height={{h}}}
+(pls%>%filter(contrast=='{{v}}') %>% pull(pl))[[1]]
+```\n\n"
+
+src <- lapply(pls$contrast, function(v) {
+  if (n[1,v]<4) {
+    w=2*n[1,v]+1
+    h=2+0.5
+  } else {
+  w <- h <- 2.5*ceiling(sqrt(n[1,v]))
+  w <- w + 1
+  h <- h + 0.5
+  }
+  knitr::knit_expand(text = template, v=v, w=w, h=h)
+  })
+
+cat(knitr::knit_child(text = unlist(src), quiet = TRUE), sep = '\n\n') 
+
+```
+
+\FloatBarrier
+
+
+## Viral load
+
+
+The viral load (VL) is measured at sereval time points before and during the HIV infection, see Figure \@ref(fig:VL). The time period during which the VL is monitored varies between patients. The median time followed is almost 4 years after estimated date of infection (Edi), but one patient is followed over 9 years and another only two months.
+
+```{r VLdates, fig.cap="Viral load over time for each patient. Estimated date of infection is marked with a blue vertical line and estimated viral load set point is marked with a red horizontal line.", fig.width=10, fig.height=10, warning=FALSE}
+vload %>% filter(!is.na(vload)) %>% ggplot(aes(visitdate, vload)) + geom_vline(data=clinc, aes(xintercept=Edi), color="blue") + geom_hline(data=clinc, aes(yintercept=vl_setpt), color="red") + geom_point() + scale_y_log10() + geom_line() + facet_wrap(~subjid, scales = "free_x") + theme_bw() 
+```
+
+\FloatBarrier
+### Outliers
+
+A single VL measurement that deviate a lot from the VL measurements before and after are usually considered to be incorrect (so called blips) and should be diregarded.
+
+In order to identify blips, a running median is calculated for time points, for each patient separately. The median is calculated for three consecutive data points and deviation from the median curve is calculated in order to identify deviating points. Data points that deviate by more than a factor of 100 from the median value will be considered as outliers and excluded, unless the data point is from day 30 or earlier.
+
+This simple method for removing deviating measurements is far from perfect, but at least the most obviously deviating points are excluded, see Figure \@ref(fig:VLoutlier).
+
+```{r VLmedian, dependson="CV"}
+## Running median of three consecutive points 
+CV$VL <- CV$VL %>% group_by(subjid) %>% arrange(day) %>% mutate(VLmed=exp(as.numeric(smooth(log(vload), kind="3R"))), VLlog10res=log10(vload/VLmed)) %>% ungroup() 
+```
+
+```{r VLoutlier, fig.cap="Viral load at days since estimated date of infection (Edi). Only days after Edi are shown. The line shows a calculated running median.", fig.width=10, fig.height=10, warning=FALSE, dependson="CV"}
+CV$VL <- CV$VL %>% mutate(outlier=abs(VLlog10res)>2&day>30) 
+CV$VL %>% ggplot(aes(x=day, y=vload, color=outlier)) + geom_point() + geom_line(aes(y=VLmed)) + scale_y_log10() + facet_wrap(~subjid, scales = "free_x") + theme_bw() 
+```
+
+
+### ART start date
+
+Antiretroviral treatment (ART) reduces the viral load. When patients are grouped according to VL, all time points after ART start date should be removed, as the goal is not to model the treatment effect on VL.
+
+ART start date is read from the file `Protocol_C_with_ART_start_date_for_JN_23042021.xlsx`and `Durban_ART_startdate.xlsx`. Patients with no artstart_date value, are assumed to not have received any treatment.
+
+```{r ART, fig.cap="Viral load over time colored according to if the sample is from before or after startdate of ART. Patients without ART startdate are assumed to be untreated.", fig.width=10, fig.height=7, warning=FALSE, dependson="CV"}
+#CV$VL <- CV$VL %>% left_join(clinc %>% dplyr::select(subjid, artstart_date))
+#CV$VL <- CV$VL %>% group_by(subjid) %>% mutate(ART=ifelse(is.na(artstart_date), FALSE, visitdate>artstart_date))
+vload %>% left_join(CV$VL %>% dplyr::select(subjid, day, vload, VLmed, outlier)) %>% filter(is.na(outlier) | !outlier) %>% filter(day>0, !is.na(vload)) %>% ggplot(aes(x=day, y=vload, color=ART)) + geom_point() + geom_line(aes(y=VLmed)) + scale_y_log10() + facet_wrap(~subjid, scales = "free_x") + theme_bw()
+```
+
+```{r VL100, fig.cap="Viral load first 100 days.", dependson="CV"}
+VLstats <- vload %>% filter(!is.na(vload)) %>% group_by(subjid) %>%
+  summarize(Peak=max(vload[day<=6*7]), 
+            "Days to peak"=min(day[vload==Peak]), 
+            Nadir=min(vload[day>`Days to peak`&day<=7*12]), 
+            "Days to nadir"=min(day[vload==Nadir]), 
+            "Days to EIA"=day[which(Timepoint==2)], .groups = "drop")
+
+lVLstats <- pivot_longer(VLstats, cols=2:6) %>% mutate(x=c(Peak=median(VLstats$`Days to peak`), Nadir=median(VLstats$`Days to nadir`), "Days to peak"=8.2, "Days to EIA"=8.8, "Days to nadir"=9.4)[name])
+med <- lVLstats %>% group_by(name, x) %>% mutate(value=ifelse(name %in% c("Nadir", "Peak"), log10(value), value)) %>% summarize(med=median(value), mx=max(value))
+
+pl <- vload %>% left_join(CV$VL %>% dplyr::select(subjid, day, vload, VLmed, outlier)) %>% filter(is.na(outlier) | !outlier) %>% filter(day>0, !is.na(vload)) %>% ggplot(aes(x=day, y=log10(vload))) + geom_line(aes(y=log10(vload), group=subjid), color="grey") + theme_bw()  + coord_cartesian(xlim=c(0,100), ylim=c(0,10), expand=FALSE)
+pl <- pl + geom_boxplot(data=lVLstats %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=log10(value), color=name), width=3.5, alpha=0) + geom_text(data=med %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=mx+0.2, label=sprintf("%.1f", med), color=name), vjust=0)
+pl <- pl + geom_boxplot(data=lVLstats %>% filter(grepl("Day", name)), aes(y=x, x=value, color=name), alpha=0) + geom_text(data=med %>% filter(grepl("Day", name)), aes(y=x, x=mx+2, label=sprintf("%.1f", med), color=name), hjust=0)
+pl + xlab("Days since EDI") + ylab(bquote(Viral~Load~(log[10]~copies/mL))) + scale_color_discrete("")
+
+```
+
+
+```{r VL1y, fig.cap="Viral load first year.", dependson="CV"}
+pl <- vload %>% left_join(CV$VL %>% dplyr::select(subjid, day, vload, VLmed, outlier)) %>% filter(is.na(outlier) | !outlier) %>% filter(day>0, !is.na(vload)) %>% ggplot(aes(x=day, y=log10(vload))) + geom_line(aes(y=log10(vload), group=subjid), color="grey") + theme_bw()  + coord_cartesian(xlim=c(0,365.25), ylim=c(0,10), expand=FALSE)
+pl <- pl + geom_boxplot(data=lVLstats %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=log10(value), color=name), width=9, alpha=0) + geom_text(data=med %>% filter(name %in% c("Peak", "Nadir")), aes(x=x, y=mx+0.2, label=sprintf("%.1f", med), color=name), vjust=0)
+pl <- pl + geom_boxplot(data=lVLstats %>% filter(grepl("Day", name)), aes(y=x, x=value, color=name), alpha=0) + geom_text(data=med %>% filter(grepl("Day", name)), aes(y=x, x=mx+2, label=sprintf("%.1f", med), color=name), hjust=0)
+pl + xlab("Days since EDI") + ylab(bquote(Viral~Load~(log[10]~copies/mL))) + scale_color_discrete("")
+```
+
+
+\FloatBarrier
+### Compare VL profiles
+
+The VL is measured at different days (counting from Edi) for each patient. In order to be able to compare the VL profiles between patients curve fitting  will be used.
+
+### Cubic smoothing spline
+
+A cubic smoothing spline (function `smooth.spline`) is fitted to the VL measurements, separately foreach patient, and based on the fitted curve VL values from the same time points (days) can be computed for all patients. However, no extrapolation will be done, i.e. a VL value will not be estimated before first observation of after last observation for a patient. Hence, the length of VL vectors will still be unequal.
+
+The cubic spline is based on VL values from day 0 (Edi) until before ART start, outliers are excluded. VL will be log10-tranformed before calculation and as the time variable (day) is unevenly distributed this value is also log10-transformed (log10(x +1)) before calculating splines.
+
+```{r VLtemplate1, cache=FALSE}
+if (!file.exists("splineclusterVL.Rmd")) {
+  template1 <- readLines("splineclusterXXXid.Rmd")
+  template1 <- gsub("XXX", "vload", gsub("XXXid", "VL", gsub("XXXlongname", "Viral Load", template1)))
+  template1[which(grepl("^timewindows <- ", template1))] <- "timewindows <- as.list(as.data.frame(t(cbind(min=c(rep(365.25/12*1:6, 2), rep(365.25/12*1:3, 5:3)), max=c(rep(365.25*3,6), rep(365.25,6), 365.25/12*c(2:6,3:6, 4:6))))))"
+  template1[which(grepl("^names\\(timewindows\\)", template1))] <- 
+    "names(timewindows) <- sapply(timewindows, function(lmt) paste0(paste(lmt/365.25*12, collapse=\"-\"), \"m\"))"
+  writeLines(template1, "splineclusterVL.Rmd")
+} 
+```
+
+```{r VL0}
+##VL before ART is in CV$VL
+##Remove outliers
+VL0 <- CV$VL <- CV$VL %>% filter(!outlier, !ART)
+```
+
+```{r VLclrun, child="../report_aux/splineclusterVL.Rmd"}
+```
+
+
+```{r VLtemplate2}
+if (!file.exists("../report_aux/evalclusterVL112m.Rmd")) {
+  template2 <- readLines("../report_aux/evalclusterXXXid.Rmd")
+template2 <- gsub("XXX", "vload", gsub("XXXid", "VL", gsub("XXXlongname", "Viral Load", template2)))
+template2 <- gsub("CCC", "1-12m", gsub("CCCid", "cl112m", template2))
+writeLines(template2, "../report_aux/evalclusterVL112m.Rmd")
+}
+```
+
+
+```{r cmpclusters, fig.cap="Compare clusters based on 1-6m and 1-12 m."}
+lmts <- list("1-6m"=c(1,6)*365.25/12, "6-12m"=c(6,12)*365.25/12, "1-12m"=c(1,12)*365.25/12)
+Z <- CVsplines$VL$spline %>% filter(mn<=min(unlist(lmts)), mx>=max(unlist(lmts)))
+h <- lapply(lmts, function(lmt) {  
+  z <- Z %>% filter(day>=lmt[1], day<=lmt[2]) %>% mutate(log10vload=log10(vload)) %>% pivot_wider(names_from=subjid, values_from=log10vload, id_cols=day)
+  hclust(dist(t(z[,-1])))
+}) 
+library(dendextend)
+dendlist(as.dendrogram(h[[1]]), as.dendrogram(h[[3]])) %>% untangle(method="step1side") %>% tanglegram()
+```
+
+```{r Euclidean1-12m, fig.show="hold", fig.height=7, fig.width=12, fig.cap="VL clusters based on time period 1-12 months (30 to 364 days instead of 365.25 to include more patients), computed using complete linkage hierarchical clustering based on Euclidean distance.", fig.show="hold", message=FALSE, warning=FALSE}
+VLcl112eu <- Eucluster(CVsplines$VL$splw, CVsplines$VL$spline, CVsplines$VL$lambda, c(30,364), "1-12m", "day", "vload", pv=TRUE)
+CVsplines$VL$spline %>% left_join(VLcl112eu$cl) %>% filter(!is.na(cl), day<=36*365.25/12) %>% ggplot(aes(x=day, y=vload, group=subjid, color=paste("Cluster ", cl))) + geom_vline(xintercept = 30) + geom_vline(xintercept=364) + geom_line() + theme_bw() + scale_color_discrete("") + scale_x_continuous(trans=scales::boxcox_trans(CVsplines$VL$lambda$x, 1)) + scale_y_continuous(trans=scales::boxcox_trans(CVsplines$VL$lambda$y))
+```
+
+```{r VLpvlust, fig.cap="VL. Multiscale bootstrap resampling. Clusters with alpha>=0.90 are shown to the right", fig.show="hold", fig.height=7, fig.width=7, out.width="50%"}
+plot(VLcl112eu$pvc)
+plot(VLcl112eu$pvpl)
+```
+
+
+```{r VLspline3years, fig.show="hold", fig.height=7, fig.width=12, fig.cap="Clusters based on time period 1-12 months (30 to 364 days instead of 365.25 to include more patients), computed using complete linkage hierarchical clustering based on Euclidean distance."}
+CVsplines$VL$spline %>% left_join(VLcl112eu$cl) %>% filter(!is.na(cl), day<=36*365.25/12) %>% ggplot(aes(x=day, y=vload, group=subjid, color=paste("Cluster ", cl))) + geom_vline(xintercept = 30) + geom_vline(xintercept=364) + geom_line() + scale_y_log10() + theme_bw() + scale_color_discrete("") + geom_point(data=VL0 %>% left_join(VLcl112eu$cl) %>% filter(!is.na(cl), day<=36*365.25/12)) + facet_wrap(~subjid)
+```
+
+
+```{r Euclidean1-12mheatmap, fig.show="hold", fig.height=7, fig.width=12, fig.cap="Clusters based on time period 1-12 months, computed using complete linkage hierarchical clustering based on Euclidean distance."}
+NY <- c('Fever', 'Headache', 'Nightsweats', 'Myalgia', 'Fatigue', 'Skinrash', 'Oralulcers', 'Pharyngitis', 'Lymphadenopathy', 'Diarrhea', 'Anorexia')
+ph <- clinc %>% left_join(VLcl112eu$cl) %>% column_to_rownames("subjid") %>% mutate(across(c(ARS, all_of(NY)), ~factor(., levels=c("No", "Yes"))), cluster=factor(cl), across(c(Site, Sex, Risk_grp, Subtype), ~factor(.))) %>% dplyr::select(ARS, all_of(NY), cluster, Site, Risk_grp, Sex, Age, Subtype)
+Xw <- Xw %>% left_join(VLcl112eu$cl %>% mutate(cl=factor(cl)) %>% rename(VLcl112eu=cl)) 
+X <- X %>% left_join(VLcl112eu$cl %>% mutate(cl=factor(cl)) %>% rename(VLcl112eu=cl)) 
+bwNY=c("No"="gray", "Yes"="black")
+annot_cols <- list(cluster=c("1"="#F8766D", "2"="#00BFC4"))
+for (nm in NY) annot_cols[[nm]] <- bwNY
+z <- CVsplines$VL$splw %>% dplyr::filter(day>=30, day<=364) %>% dplyr::select(which(colMeans(is.na(.))==0))
+pheatmap(t(z[, -1]), cluster_cols = FALSE, annotation_row = ph[colnames(z)[-1],], annotation_colors =annot_cols) 
+```
+
+
+```{r clusters112eu}
+tab <- tab1(setdiff(names(ph), "cluster"), df=ph %>% filter(!is.na(cluster)), y="cluster")
+options(knitr.kable.NA = '')
+tab %>% mutate(variable=cell_spec(variable, bold=!is.na(test)), p=ifelse(!is.na(p), sprintf("%.3g", p), p)) %>% dplyr::select(-var) %>% kable(escape=FALSE, row.names = FALSE, caption="Summary of associations between clinical parameters and clusters calculated using data from 1-12 months and complete linkage hierarchical clustering based on Euclidean distance.") %>% kable_styling() 
+```
+
+\FloatBarrier
+
+### Linear regression 1-12m clusters
+
+Linear regressions are performed separately for each time point (or difference) and protein to assess the association between protein value and 1-12m clusters. **Age and cohort** are included as covariates in the models.
+
+```{r lmVLcl112eu}
+var <- "VLcl112eu"
+lmres[[var]] <- sapply(c("v0", "v1", "v2", "v10", "v20", "v21"), function(y) Xw %>% group_by(Protein, exp) %>% summarize(lmmod(df=cur_data(), y=y, var=var, covars = c("Age", "Cohort")), .groups="drop") %>% mutate(visit=y) %>% relocate(visit, ), simplify = FALSE, USE.NAMES = TRUE)
+lmres[[var]] <- lapply(lmres[[var]], function(x) x %>% left_join(Proteins, by=c(Protein="id", exp="exp")) %>% relocate(c("PG.Genes"), .after="Protein")) 
+openxlsx::write.xlsx(lmres[[var]], file=file.path(intermediate, "lm_VLcl112euage.xlsx"))
+openxlsx::write.xlsx(lapply(lmres[[var]], function(z) z %>% filter(grepl(var, variable)) %>% arrange(p)), file=file.path(intermediate, "lm_cl112eu_agecohort.xlsx"))
+```
+
+\FloatBarrier
+
+```{r QQunifVLcl112eu, fig.cap="QQplots of VL cl112eu p-values. Observed p-values vs expected p-values.", depends="lmVLcl112eu"}
+pl <- do.call("rbind", lmres[[var]]) %>% filter(grepl(var, variable)) %>% mutate(visit=factor(visit, names(lmres[[var]]))) %>% group_by(visit) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ggplot(aes(x=-log10(exp.p), y=-log10(p))) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_wrap(~visit) + theme_bw()
+plot(pl)
+```
+
+\FloatBarrier
+
+```{r lmtabsVLcl112eu, results="asis", depends="lmVLcl112eu"}
+for (v in names(lmres[[var]])) {
+  print(lmres[[var]][[v]] %>% filter(grepl(var, variable)) %>% arrange(p) %>% head() %>% dplyr::select(Protein, PG.Genes, Estimate, p) %>% rename(beta=Estimate) %>% kable(caption=sprintf("Significant associations between protein value at visit %s and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.", sapply(strsplit(v, ""), function(z) paste(z[-1], collapse=" - "))), label=v))
+} 
+```
+
+\FloatBarrier
+
+### Longitudinal profiles for proteins associated with viral control
+
+Based on the linear regression predicting protein level from viral load cluster after 6 weeks, adjusting fo age, cohort and sex, select significant proteins.
+
+```{r selVL, depends="lmVLcl112eu"}
+sel <- lmres$VLcl112eu %>% bind_rows(.id="visit") %>% filter(grepl("VLcl112eu", variable), p<pcutoff) %>% dplyr::select(protein_type_id, PG.Genes, visit) %>% distinct()
+
+n <- sel %>% group_by(visit) %>% summarize(n=n()) %>% column_to_rownames("visit") %>% t()
+pls <- sel %>% dplyr::rename(contrast=visit) %>% left_join(X, by=c("protein_type_id")) %>% mutate(name=paste(protein_type_id, PG.Genes, sep="/")) %>% filter(!is.na(VLcl112eu)) %>% group_by(contrast) %>% summarize(n=n(), pl=list(cur_data() %>% ggplot(aes(x=visitnr, y=logIntensity, group=subjid, color=VLcl112eu)) + geom_line() + facet_wrap(~name, scales="free_y") + theme_bw()))
+```
+
+
+```{r genplotselVL, results="asis"}
+template <- "```{r longprofileVL{{v}}, fig.cap=\"Longitudinal profiles of proteins at {{v}} associated with viral control clusters  (VLcl112eu).\", fig.width={{w}}, fig.height={{h}}}
+(pls%>%filter(contrast=='{{v}}') %>% pull(pl))[[1]]
+```\n\n"
+
+src <- lapply(pls$contrast, function(v) {
+  if (n[1,v]<4) {
+    w=2*n[1,v]+1
+    h=2+0.5
+  } else {
+  w <- h <- 2.5*ceiling(sqrt(n[1,v]))
+  w <- w + 1
+  h <- h + 0.5
+  }
+  knitr::knit_expand(text = template, v=v, w=w, h=h)
+  })
+
+cat(knitr::knit_child(text = unlist(src), quiet = TRUE), sep = '\n\n') 
+```
+
+\FloatBarrier
+
+### Association viral control and disease progression
+
+A contingency table for viral control (VL clusters 1 and 2) and disease progression (fast or slow) is shown in Table \@ref(tab:CD4VL).
+
+```{r CD4VL}
+CD4VL <- CD4l5006w %>% full_join(VLcl112eu$cl, by="subjid")
+table(paste("VL", CD4VL$cl), CD4VL$progression) %>% kable(caption="Overlap between viral controllers and fast/slow disease progression.")
+ft <- with(CD4VL %>% filter(!is.na(cl)), table(cl, progression)) %>% fisher.test()
+```
+
+There is no association between viral control and disease progression (Fisher's exact test, p=`r ft$p.value`).
+
+```{r KMCD4VL, fig.cap="Kaplan-Meier curve for time to CD4<500 (after 6 weeks), stratified by viral load cluster. Logrank p-value is shown in plot.", fig.height=8, fig.width=6}
+fit <- survfit(Surv(time/365.25, event) ~ cl, data=CD4surv %>% filter(var=="CD4_500_6w") %>% left_join(VLcl112eu$cl, by="subjid"))
+ggsurvplot(fit, risk.table=TRUE, break.time.by=1, xlab="Years", conf.int=FALSE, pval=TRUE, pval.coord=c(2,0.75))
+```
+
+
+
+
+\FloatBarrier
+
+### Machine learning
+
+PLS-DA models are trained to predict 1-12 m complete, Euclidean cluster "1" or "2". The models are trained and evaluated in 10 5-fold cross-validations. For each test set the perforance measures error rate (ER), accuracy (acc) and AUC (area under receiver operator curve (ROC)) are computed.
+
+Models are constructed based on the following datasets;
+
+* v0 + v1 + v2
+* v0 + v10 + v20
+* v1 + v2
+* v10 + v20
+* v10
+* v20
+
+Exclude samples with any missing values at the analyzed visits.
+
+```{r VLcl112euplsda}
+set.seed(37)
+cl <- cl %>% mutate(y=factor(cl))
+holdouts <- index_crossval(cl$y, 5, 10)
+honms <- names(holdouts)
+holdouts$subjid <- cl$subjid
+Xwclh <- Xw %>% left_join(holdouts, by="subjid")
+resVLcl112eu <- list()
+nprot <- length(unique(Xw$protein_type_id))
+resVLcl112eu$PLSDA <- lapply(list(v0v1v2=c("v0", "v1", "v2"), v0v10v20=c("v0", "v10", "v20"), v1v2=c("v1", "v2"), v10v20=c("v10", "v20"), v10="v10", v20="v20"), function(v) {
+  x <- Xwclh[rowSums(is.na(Xwclh[, v, drop=FALSE]))==0,] %>% filter(!is.na(VLcl112eu)) %>% group_by(subjid) %>% mutate(n=n()) %>% ungroup() %>% filter(n==nprot) %>% pivot_wider(id_cols=c("subjid", "VLcl112eu", all_of(honms)), names_from=c("Protein", "exp"), values_from=all_of(v))
+  y <- x$VLcl112eu
+  ho <- x %>% dplyr::select(all_of(honms), "subjid") %>% column_to_rownames("subjid")
+  x %>% dplyr::select(-all_of(honms), -VLcl112eu) %>% column_to_rownames("subjid") %>% hoPLSDA(Y=y, holdouts=ho)
+})
+```
+
+```{r VLcl112euRF, eval=TRUE, depends="VLcl112euplsda"}
+resVLcl112eu$RF <- lapply(list(v0v1v2=c("v0", "v1", "v2"), v0v10v20=c("v0", "v10", "v20"), v1v2=c("v1", "v2"), v10v20=c("v10", "v20"), v10="v10", v20="v20"), function(v) {
+  x <- Xwclh[rowSums(is.na(Xwclh[, v, drop=FALSE]))==0,] %>% filter(!is.na(VLcl112eu)) %>% group_by(subjid) %>% mutate(n=n()) %>% ungroup() %>% filter(n==nprot) %>% pivot_wider(id_cols=c("subjid", "VLcl112eu", all_of(honms)), names_from=c("Protein", "exp"), values_from=all_of(v))
+  y <- x$VLcl112eu
+  ho <- x %>% dplyr::select(all_of(honms), "subjid") %>% column_to_rownames("subjid")
+  x %>% dplyr::select(-all_of(honms), -VLcl112eu) %>% column_to_rownames("subjid") %>% hoRF(Y=y, holdouts=ho)
+})
+```
+
+
+```{r perfVLcl112eu, eval=TRUE, depends="VLcl112euplsda"}
+perf <- function(res) {
+  res$pred %>% filter(holdout) %>% group_by(h) %>% dplyr::summarize(ER=mean(pred != Y), acc=mean(pred==Y), auc={auc<-try(as.numeric(auc(roc(Y~lpred))), silent=TRUE); if (inherits(auc, "try-error")) NA else auc})
+}
+perfVLcl112eu <- lapply(resVLcl112eu, lapply, perf)
+```
+
+<!-- Only patients with protein values from v0, v1 and v2 and also a  -->
+Only patients with a cluster identity (1/2) are included in the analysis. This includes in total `r nrow(cl)` patients, of which `r sum(cl$cl==1)` in cluster 1 and `r sum(cl$cl==2)` in cluster 2.
+
+\FloatBarrier
+
+```{r VLcl112euperf, fig.width=10, fig.height=4, fig.cap="Cross-validated performance measures for the VLcl112eu PLS-DA and RF models.", warning=FALSE, eval=TRUE, depends="VLcl112euplsda"}
+do.call("cbind", lapply(lapply(perfVLcl112eu, sapply, colMeans), function(x) t(x[c("ER", "acc"),]))) %>% kable(digits=3, caption="Average performance measures of PLS-DA and RF models predicting VLcl112eu as computed over the 50 test sets.") %>% add_header_above(header = c(" "=1, "PLS-DA"=2, "RF"=2))
+bind_rows(lapply(perfVLcl112eu, bind_rows, .id="subset"), .id="model") %>% mutate(subset=factor(subset, levels=names(perfVLcl112eu$PLSDA))) %>%  pivot_longer(cols=c("ER", "acc"), names_to="performance") %>% #, "auc"
+  ggplot(aes(x=performance, y=value, color=subset, fill=model)) + geom_boxplot(outlier.size=0) + geom_quasirandom(dodge.width = 0.75, size=1) + theme_bw() + scale_fill_manual(values=c("white", "grey"))
+```
+
+
+```{r VLcl112euplsdav10v20, warning=FALSE, fig.show="hold", fig.cap="PLS-DA model based on v10 and v20. The score plot is shown for the model based on all samples. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.", out.width=c("50%", "50%", "50%", "100%"), eval=TRUE, depends="VLcl112euplsda"}
+v <- "v10v20" 
+##Not checked for flipped directions, but seems not to be a problem in this case
+pl <- resVLcl112eu$PLSDA[[v]]$pred %>% filter(h==0|holdout) %>% ggplot(aes(p1, p2, shape=Y, color=Y)) + scale_shape_discrete("") + xlab(sprintf("t1 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("t2 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p2','R2X']))
+
+pl + theme_bw() + geom_text(data=pl$data %>% filter(h==0), aes(label=id))
+pl + geom_point(aes(alpha=h==0)) + geom_line(data = pl$data %>% group_by(id, h==0) %>% dplyr::summarize(p1=mean(p1), p2=mean(p2), Y=unique(Y)), aes(group=id), show.legend = FALSE) + theme_bw() + scale_alpha_discrete(guide="none")
+
+##Loadings
+vip2 <- names(which(sort(resVLcl112eu$PLSDA[[v]]$fit0@vipVn, decreasing=TRUE)>=2))
+vip18 <- setdiff(names(which(sort(resVLcl112eu$PLSDA[[v]]$fit0@vipVn, decreasing=TRUE)>=1.8)), vip2)
+pll <- resVLcl112eu$PLSDA[[v]]$fit0@loadingMN %>% as.data.frame() %>% rownames_to_column("id") %>% ##left_join(Proteins)  %>% 
+  ggplot(aes(x=p1, y=p2, label=id)) + geom_point() + geom_vline(xintercept=0) + geom_hline(yintercept=0) + theme_bw() + xlab(sprintf("p1 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("p2 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p2','R2X']))
+pll + geom_text_repel(data=pll$data %>% filter(id %in% vip18)) + 
+  geom_label_repel(data=pll$data %>% filter(id %in% vip2))
+# Finally, the VIP values for model trained on all samples are shown as red points and the variations in VIP from the cross-validation models are shown in boxplots.
+#MLres$ARS[[v]]$vip %>% filter(h!=0) %>% mutate(id=gsub("^v[0-9]*", "", var)) %>% left_join(proteins, by=c(id="id")) %>% mutate(var=PG.Genes) %>% ggplot(aes(x=var, y=vip)) + geom_boxplot() + geom_point(data=MLres$ARS[[v]]$vip %>% filter(h==0), color="red") + theme_bw() + theme(axis.text.x=element_text(angle=90, vjust=0.5, hjust=1, size=rel(0.8))) + xlab("") + ylab("VIP") #+ scale_x_discrete(limits=MLres$ARS[[v]]$vip %>% filter(h==0) %>% arrange(vip) %>% pull("var")), labels=substr(names(sort(MLres$ARS$fit0@vipVn, decreasing=TRUE)), 1, 8))
+```
+
+```{r VLcl112euplsdav20, warning=FALSE, fig.show="hold", fig.cap="PLS-DA model predicting VLcl112eu based on v20. The score plot is shown for the model based on v20. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.", out.width=c("50%", "50%", "50%"), eval=TRUE, depends="VLcl112euplsda"}
+v <- "v20"
+##Not checked for flipped directions, but seems not to be a problem in this case
+pred <- resVLcl112eu$PLSDA[[v]]$pred %>% mutate(cv=(h - 1) %/% 5 + 1)
+S0 <- pred %>% filter(h==0) %>% dplyr::select(id, p1, p2)
+pred <- pred %>% left_join(S0, by="id", suffix=c("", ".0")) %>% group_by(h) %>% mutate(r1=cor(p1[!holdout], p1.0[!holdout]), r2=cor(p2[!holdout], p2.0[!holdout])) %>% mutate(p1=ifelse(r1<0, -p1, p1), p2=ifelse(r2<0, -p2, p2)) %>% ungroup()
+
+pl <- pred %>% filter(h==0|holdout) %>% ggplot(aes(p1, p2, shape=Y, color=Y)) + scale_shape_discrete("") + xlab(sprintf("t1 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("t2 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p2','R2X']))
+pl + theme_bw() + geom_text(data=pl$data %>% filter(h==0), aes(label=id)) + scale_color_manual(values=c("black", "orange")) 
+
+pl + geom_point(aes(alpha=h==0)) + geom_line(data = pl$data %>% group_by(id, h==0) %>% dplyr::summarize(p1=mean(p1), p2=mean(p2), Y=unique(Y)), aes(group=id), show.legend = FALSE) + theme_bw() + scale_alpha_discrete(guide="none")
+
+##Loadings
+vip2 <- names(which(sort(resVLcl112eu$PLSDA[[v]]$fit0@vipVn, decreasing=TRUE)>=2))
+vip18 <- setdiff(names(which(sort(resVLcl112eu$PLSDA[[v]]$fit0@vipVn, decreasing=TRUE)>=1.8)), vip2)
+pll <- resVLcl112eu$PLSDA[[v]]$fit0@loadingMN %>% as.data.frame() %>% rownames_to_column("id") %>% ##left_join(Proteins)  %>% PG.Genes
+  ggplot(aes(x=p1, y=p2, label=id)) + geom_point() + geom_vline(xintercept=0) + geom_hline(yintercept=0) + theme_bw() + xlab(sprintf("p1 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("p2 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p2','R2X']))
+pll + geom_text_repel(data=pll$data %>% filter(id %in% vip18)) + 
+  geom_label_repel(data=pll$data %>% filter(id %in% vip2))
+```
+
+```{r PLSDAv20, fig.cap="PLS-DA model predicting VLcl112eu based on v20. Cross-validation scores. The filled points are for the test samples, whereas the open symbols show the training samples. Ten different cross-valudations are performed", fig.width=10, fig.height=10, eval=TRUE, depends="VLcl112euplsda"}
+pred %>% filter(cv!=0) %>% ggplot(aes(p1, p2, shape=Y, color=Y, fill=paste(Y, holdout))) + geom_point() + facet_wrap(~cv) + scale_shape_manual(values=c(21,24)) + scale_color_manual(values=c("black", "orange")) + scale_fill_manual(values = c("1 FALSE"="white", "1 TRUE"="black", "2 FALSE"="white", "2 TRUE"="orange")) + guides(fill="none") + theme_bw() 
+```
+
+
+```{r VLcl112euplsdav20vip, warning=FALSE, fig.show="hold", fig.cap="PLS-DA model based on v20, VIP values. Red point are for the full model and boxplot show distribution for cross-validation models.", out.width=c("100%"), eval=FALSE}
+vip <- resVLcl112eu$PLSDA$v20$vip %>% mutate(id=gsub("_.*", "", var), exp=".*_", "", var) %>% left_join(Proteins, by=c("id", "exp"))
+prord <- vip %>% filter(h==0) %>% arrange(-vip) %>% pull("PG.Genes")
+prord <- prord[1:20] 
+pl <- vip %>% filter(PG.Genes %in% prord, !is.na(PG.Genes)) %>% mutate(protein=factor(PG.Genes, levels=prord)) %>% ggplot(aes(x=protein, y= vip))
+pl <- pl + geom_boxplot(data=pl$data %>% filter(h!=0))
+pl + geom_point(data=pl$data %>% filter(h==0), color="red") + theme(axis.text.x = element_text(angle=90, vjust=0.5)) + theme_bw() + theme(axis.text.x=element_text(angle=90, vjust=0.5, hjust=1))
+```
+
+
+```{r VLcl112euRFv20, warning=FALSE, fig.show="hold", fig.cap="RF model predicting VLcl112eu based on v20. The multidimensional scalin (MDS) plot is shown for the model based on v20. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.", out.width=c("50%", "50%", "50%"), eval=TRUE, depends="VLcl112euplsda"}
+v <- "v20"
+##Not checked for flipped directions, but seems not to be a problem in this case JO!!
+pred <- resVLcl112eu$RF[[v]]$pred %>% mutate(cv=(h - 1) %/% 5 + 1)
+S0 <- pred %>% filter(h==0) %>% dplyr::select(id, p1, p2)
+pred <- pred %>% left_join(S0, by="id", suffix=c("", ".0")) %>% group_by(h) %>% mutate(r1=cor(p1[!holdout], p1.0[!holdout]), r2=cor(p2[!holdout], p2.0[!holdout])) %>% mutate(p1=ifelse(r1<0, -p1, p1), p2=ifelse(r2<0, -p2, p2)) %>% ungroup()
+
+pl <- pred %>% filter(h==0|holdout) %>% ggplot(aes(p1, p2, shape=Y, color=Y)) + scale_shape_discrete("")
+pl + theme_bw() + geom_text(data=pl$data %>% filter(h==0), aes(label=id)) + scale_color_manual(values=c("black", "orange"))
+```
+
+
+```{r VLcl112euRFv20CV, warning=FALSE, fig.show="hold", fig.cap="RF model predicting VLcl112eu based on v20. Cross-validation scores. MDS plot. The filled points are for the test samples, whereas the open symbols show the training samples. Ten different cross-valudations are performed.", fig.width=10, fig.height=10, eval=TRUE, depends="VLcl112euplsda"}
+pred %>% filter(cv!=0) %>% ggplot(aes(p1, p2, shape=Y, color=Y, fill=paste(Y, holdout))) + geom_point() + facet_wrap(~cv) + scale_shape_manual(values=c(21,24)) + scale_color_manual(values=c("black", "orange")) + scale_fill_manual(values = c("1 FALSE"="white", "1 TRUE"="black", "2 FALSE"="white", "2 TRUE"="orange")) + guides(fill="none") + theme_bw() 
+#pl + geom_point(aes(alpha=h==0)) + geom_line(data = pl$data %>% group_by(id, h==0) %>% dplyr::summarize(p1=mean(p1), p2=mean(p2), Y=unique(Y)), aes(group=id), show.legend = FALSE) + theme_bw() + scale_alpha_discrete(guide="none")
+#pl + geom_point(data = pl$data %>% filter(h!=0) %>% group_by(id) %>% dplyr::summarize(p1=mean(p1), p2=mean(p2), Y=unique(Y)), aes(group=id), show.legend = FALSE) + theme_bw()
+
+
+##Loadings
+#vip2 <- names(which(sort(resVLcl112eu$PLSDA[[v]]$fit0@vipVn, decreasing=TRUE)>=2))
+#vip18 <- setdiff(names(which(sort(resVLcl112eu$PLSDA[[v]]$fit0@vipVn, decreasing=TRUE)>=1.8)), vip2)
+#pll <- resVLcl112eu$PLSDA[[v]]$fit0@loadingMN %>% as.data.frame() %>% rownames_to_column("id") %>% left_join(Proteins)  %>% ggplot(aes(x=p1, y=p2, label=PG.Genes)) + geom_point() + geom_vline(xintercept=0) + geom_hline(yintercept=0) + theme_bw() + xlab(sprintf("p1 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p1','R2X'])) + ylab(sprintf("p2 (%.2f%%)", 100*resVLcl112eu$PLSDA[[v]]$fit0@modelDF['p2','R2X']))
+#pll + geom_text_repel(data=pll$data %>% filter(id %in% vip18)) + 
+#  geom_label_repel(data=pll$data %>% filter(id %in% vip2))
+```
+
+
+
+
+
+
+
+```{r VLcl112euv20KEGG, fig.cap="Pathway analysis based on PLS-DA VIP-values for the VLcl112eu model based on v20.", fig.show="hold", out.width="50%", eval=FALSE}
+library(clusterProfiler) 
+vip0 <- vip %>% filter(h==0)
+prots <- vip0$vip
+names(prots) <- vip0$Protein
+prots <- sort(prots, decreasing = TRUE)
+##Remove duplicates
+prots <- prots[!duplicated(names(prots))]
+  kk <- gseKEGG(geneList = prots,organism="hsa", minGSSize = 3, maxGSSize = 300, pvalueCutoff = 0.05, pAdjustMethod = "none", keyType = "uniprot", scoreType="pos", use_internal_data = TRUE)
+  dotplot(kk, title="VLcl112eu v20, KEGG pathways", color="pvalue")
+  cnetplot(kk)
+
+#library("org.Hs.eg.db", character.only=TRUE)
+#go <-  gseGO(geneList = prots,organism="hsa", minGSSize = 3, maxGSSize = 300, pvalueCutoff = 0.05, pAdjustMethod = "none", keyType = "uniprot", scoreType="pos")
+```
+
+\FloatBarrier
+
+\newpage
+
+
+### Time to first time point with $VL > 100000$.
+
+```{r VLsurv0, warning=FALSE}
+VLsurv <- CV$VL %>% group_by(subjid) %>% 
+  summarize(mx=max(day), 
+            ## VL > 100000
+            VL_g100000=min(day[vload>100000]),
+            VL_g100000_6w=min(day[vload>100000&day>=42]))
+VLsurv <- VLsurv %>% pivot_longer(col=starts_with("VL_"), names_to="var", values_to="time")
+VLsurv <- VLsurv %>% mutate(event=1*is.finite(time), time=ifelse(is.finite(time), time, mx)) %>% mutate(time=ifelse(grepl("6w", var), time-42, time)) 
+```
+
+
+```{r VLsurv, fig.cap="Time (from Edi) to VL > 100000.", out.width="49%", fig.height=8, fig.show="hold"}
+fit <- survfit(Surv(time, event) ~ 1, data=VLsurv %>% filter(var=="VL_g100000")) 
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days") 
+```
+
+```{r VLsurv6w, fig.cap="Time to VL > 100000, from 6 weeks after Edi.", out.width="49%", fig.height=8, fig.show="hold"}
+fit <- survfit(Surv(time, event) ~ 1, data=VLsurv %>% filter(var=="VL_g100000_6w")) 
+ggsurvplot(fit, risk.table=TRUE, break.time.by=365, xlab="Days")
+ggsurvplot(fit, risk.table=TRUE, xlim=c(0,365), break.time.by=7*4, xlab="Days")
+```
+
+```{r VLcoxres, warning=FALSE}
+VLcoxresfile <- file.path(intermediate, "VL_Cox_w_aveI.Rds")
+if (file.exists(VLcoxresfile)) {
+  VLcoxres <- readRDS(VLcoxresfile)
+} else {
+  chrt <- list(both=c("Durban", "IAVI"), IAVI="IAVI", Durban="Durban")
+  VLcoxres <- sapply(names(chrt), function(ch) Xl %>% filter(!is.na(var)) %>% left_join(VLsurv) %>% group_by(var, visit, Protein, exp) %>% summarize(avelogI=mean(logIntensity), do.call("rbind", sapply(adjvars[[ch]], function(avars) coxmod(df=cur_data(), time="time", event="event", x="logIntensity", covars=avars) %>% mutate(avars=paste(avars, collapse="")), simplify=FALSE, USE.NAMES=TRUE)), .groups="drop"), simplify=FALSE, USE.NAMES=TRUE)
+                    
+  saveRDS(VLcoxres, file=VLcoxresfile)
+}
+VLcoxres <- do.call("rbind", lapply(names(VLcoxres), function(ch) 
+  VLcoxres[[ch]] %>% mutate(Cohort=ch)))
+VLcoxres <- VLcoxres %>%left_join(Proteins, by=c(Protein="id", exp="exp"))
+```
+
+```{r VLsurvQQ, fig.cap="QQ plot of p-values for VL Cox regression. Observed p-values vs expected p-values.", fig.width=10, eval=TRUE}
+pldata <- VLcoxres %>% filter(variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ungroup() 
+pldata %>% ggplot(aes(x=-log10(exp.p), y=-log10(p), color=avars)) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_grid(var~visit) + theme_bw() + geom_line() 
+```
+
+```{r saveVL1000006w}
+restabs <- VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity") %>% group_by(visit)
+keys <- restabs %>% group_keys()
+restabs <- restabs %>% group_split()
+names(restabs) <- keys$visit
+write_xlsx(restabs[c("v0", "v1", "v2", "v10", "v20", "v21")], path=file.path(intermediate, "Cox_VL_g100000_6w.xlsx"))
+```
+
+
+```{r VLforestv0, fig.cap="VL<100000, 6w. v0", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v0"
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r VLforestv1, fig.cap="VL<100000, 6w. v1", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v1"
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r VLforestv2, fig.cap="VL<100000, 6w. v2", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v2"
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+```{r VLforestv10, fig.cap="VL<100000, 6w. v10", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v10"
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r VLforestv20, fig.cap="VL<100000, 6w. v20", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v20"
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+```{r VLforestv21, fig.cap="VL<100000, 6w. v21", fig.show="hold", fig.show="hold", fig.height=9, fig.width=6, out.width="50%", fig.show="hold"}
+v <- "v21"
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="neat", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="neat")
+
+forestplotHR(VLcoxres %>% filter(var=="VL_g100000_6w", variable == "logIntensity", exp=="depl", visit==v) %>% mutate(coef=log(HR), low=log(HR.low), high=log(HR.high)), pcutoff = 0.005, coef="coef", pvar="p") + theme_bw() + ggtitle(v, subtitle="depl")
+```
+
+```{r VLcoxtabs, eval=FALSE}
+VLcoxres %>% filter(variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars)  %>% dplyr::select(-variable) %>% mutate(q=p.adjust(p)) %>% arrange(p) %>% left_join(Proteins, by=c(Protein="id", exp="exp")) %>% relocate(c("PG.Genes"), .after="Protein") %>% relocate(avars, .after="visit") %>% filter(q<0.05) %>% arrange(var, visit, avars) %>% mutate(across(c("p", "q"), ~sprintf("%.3g", .)), across(where(is.numeric), ~sprintf("%.3f", .))) %>% kable(caption="Significant VL Cox regression results, all samples analyzed together.") %>% kable_styling(font_size=8) 
+```
+
+```{r CohortVLcoxres, warning=FALSE, eval=FALSE}
+VLcoxrescohortfile <- file.path(intermediate, "VL_Cox_Cohort.Rds")
+if (file.exists(VLcoxrescohortfile)) {
+  VLcoxresCohort <- readRDS(VLcoxrescohortfile)
+} else {
+  ##Adjust for age, but no other adjustments
+  VLcoxresCohort <- Xl %>% filter(!is.na(Cohort)) %>% left_join(VLsurv) %>% group_by(Cohort, var, visit, Protein, exp) %>% summarize(do.call("rbind", sapply(adjvars[1], function(avars) coxmod(df=cur_data(), time="time", event="event", x="logIntensity", covars=avars) %>% mutate(avars=paste(avars, collapse="")), simplify=FALSE, USE.NAMES=TRUE)), .groups="drop")
+  save(VLcoxresCohort, file=VLcoxrescohortfile)
+}
+```
+
+```{r CohortVLsurvQC, fig.cap="QQ plot of p-values for Cox regression for VL event (VL>100000), separately for Durban and IAVI cohorts. Adjust for age. Observed p-values vs expected p-values.", fig.width=10, eval=FALSE}
+pldata <- VLcoxrescohort %>% filter(variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, avars, Cohort) %>% mutate(exp.p=(rank(p, ties.method="first")+.5)/(length(p)+1)) %>% ungroup() 
+pldata %>% ggplot(aes(x=-log10(exp.p), y=-log10(p), color=Cohort)) + geom_point() + geom_abline(intercept = 0, slope=1) + facet_grid(var~visit) + theme_bw() + geom_line() 
+```
+
+```{r cohortVLcoxtabs, eval=FALSE}
+VLcoxrescohort %>% filter(variable == "logIntensity") %>% mutate(visit=factor(visit, levels=!!visits)) %>% group_by(var, visit, Cohort, avars)  %>% dplyr::select(-variable) %>% mutate(q=p.adjust(p)) %>% arrange(p) %>% left_join(Proteins, by=c(Protein="id")) %>% relocate(c("PG.Genes"), .after="Protein") %>% relocate(avars, .after="visit") %>% filter(q<0.05) %>% arrange(var, visit, avars) %>% mutate(across(c("p", "q"), ~sprintf("%.3g", .)), across(where(is.numeric), ~sprintf("%.3f", .))) %>% kable(caption="Significant VL Cox regression results, cohorts are analyzed separately.") %>% kable_styling(font_size=8) 
+```
+
+\FloatBarrier
+
+## Global clustering
+
+Cluster all samples based on protein values from all three visits. Euclidean distance between patients are computed after standardization of protein values (i.e. mean centering and dividing by standard deviation for each protein). Clustering is performed using complete linkage hierarchical clustering.
+
+In the heatmap also proteins are clustered, here using complete linkage and a correlation based distance.
+
+```{r globclustneat, fig.cap="Patient clustering based on all neat proteins with 90\\% or more detectable values, all time points included.", fig.width=14, fig.height=10}
+#X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0)), m=mean(logIntensity)) %>% filter(proteingroup=="normalized", fdetect>0.9) %>% ungroup() %>% arrange(m) %>% mutate(protein_type_id=factor(protein_type_id, levels=unique(protein_type_id))) %>% ggplot(aes(x=protein_type_id, y=logIntensity, color=exp)) + geom_boxplot()
+
+##90% detectable
+X90alltimes <-  pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", exp=="neat", fdetect>0.9), names_from=c( "visit", "Protein"), values_from="logIntensity", id_cols=c("subjid")) %>% column_to_rownames("subjid") %>% as.matrix()
+X90alltimes <- X90alltimes[, sort(colnames(X90alltimes))]
+##Standardize
+X90alltimessc <- scale(X90alltimes)
+h <- hclust(dist(X90alltimessc), method="complete")
+hprot <- hclust(as.dist(1-abs(cor(X90alltimessc, use="pair"))), method="complete")
+NY <- c('Fever', 'Headache', 'Nightsweats', 'Myalgia', 'Fatigue', 'Skinrash', 'Oralulcers', 'Pharyngitis', 'Lymphadenopathy', 'Diarrhea', 'Anorexia')
+ph <- clinc %>% left_join(VLcl112eu$cl %>% rename(VLcl112eu=cl)) %>% left_join(CD4l5006w %>% rename(timeCD4l5006w=time, eventCD4l5006w=event, CD4l5006w=group_CD4_500_6w)) %>% column_to_rownames("subjid") %>% mutate(across(c(ARS, all_of(NY)), ~factor(., levels=c("No", "Yes"))), across(c(Site, Sex, Risk_grp, Subtype, VLcl112eu, CD4l5006w), ~factor(.))) %>% dplyr::select(ARS, all_of(NY), Site, Risk_grp, Sex, Age, Subtype, VLcl112eu, CD4l5006w)
+bwNY=c("No"="gray", "Yes"="black")
+annot_cols <- list(cluster=c("1"="#F8766D", "2"="#00BFC4"))
+for (nm in NY) annot_cols[[nm]] <- bwNY
+pheatmap(X90alltimes, cluster_rows = h, cluster_cols = hprot, annotation_row = ph[rownames(X90alltimes),], annotation_colors=annot_cols)
+```
+
+```{r}
+##Cluster proteins
+##90% detectable
+X90protalltimes <-  pivot_wider(X %>% group_by(protein_type_id) %>% mutate(fdetect=mean(!is.na(logIntensity0))) %>% filter(proteingroup=="normalized", fdetect>0.9), names_from=c("protein_type_id"), values_from="logIntensity", id_cols=c("subjid", "visit")) %>% mutate(rn=paste(subjid, visit, sep="_")) %>% column_to_rownames("rn") %>% dplyr::select(-subjid, -visit) %>% as.matrix()
+h <- hclust(as.dist(1-abs(cor(X90protalltimes, use="pair"))), method="complete")
+```
+
+

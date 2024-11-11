@@ -1,0 +1,18 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r
+  - r-tidyverse
+  - r-markdown
+  - r-janitor
+  - r-kableextra
+  - r-english
+  - r-ggvenn
+  - r-expss
+  - r-remotes
+  - r-rprojroot
+  - r-desc
+
+  # errors during install by renv
+  - bioconductor-normalyzerde=1.12.0  # bioconda

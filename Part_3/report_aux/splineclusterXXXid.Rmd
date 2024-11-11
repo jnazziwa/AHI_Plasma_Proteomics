@@ -1,0 +1,68 @@
+```{r XXXidvar}
+var <- "XXX"
+varid <- "XXXid"
+varname="XXXlongname"
+```
+
+```{r XXXid, fig.cap=sprintf("%s colored according to before/after ART start date.", varname), fig.width=10, fig.height=10}
+vload %>% ggplot(aes(x=day, y=!!as.symbol(var), color=ART)) + geom_point() + facet_wrap(~subjid, scales = "free_x") + theme_bw()
+```
+
+```{r XXXidspline}
+lambda <- AHIprot::boxcoxlambda(CV[[varid]], "day", var, "subjid")
+#lambda$y <- 1 
+CVsplines[[varid]] <- splines(CV[[varid]], "day", var, "subjid", lambda)
+tr <- function(l) {
+  if (l==0)
+    "log-transformed"
+  else if (l==1)
+    "untransformed"
+  else
+    paste0("x^", l)
+}
+```
+
+```{r XXXiddaydistr, fig.cap=sprintf("Distribution of %s and time points before and after transformation, colored according to subjid. %s is %s and day is %s.", varname, varname, tr(CVsplines[[varid]]$lambda$y), tr(CVsplines[[varid]]$lambda$x)), warning=FALSE}
+CVsplines[[varid]]$pl$distr  
+```
+
+```{r XXXidspar, fig.cap="Sum of squares versus spar for XXXlongname."}
+CVsplines[[varid]]$pl$spar
+```
+
+```{r XXXidbeforeART, fig.width=10, fig.height=10, fig.cap="XXXlongname before start of ART. The smoothing spline is shown in red.", warning=FALSE}
+CV[[varid]] %>% ggplot(aes(x=day, y=!!as.symbol(var))) + geom_point() + geom_line(data=CVsplines[[varid]]$spline, color="red") + scale_x_continuous(limits=c(NA,1096), trans = scales::boxcox_trans(CVsplines[[varid]]$lambda$x, 1)) + scale_y_continuous(trans = scales::boxcox_trans(CVsplines[[varid]]$lambda$y)) + facet_wrap(~subjid) + theme_bw()  
+```
+
+```{r NXXXid, fig.cap="Number of patients with XXXlongname observation per time point.", fig.width=14}
+data.frame(day=CVsplines[[varid]]$splw$day, n=rowSums(!is.na(CVsplines[[varid]]$splw[, -1]))) %>% ggplot(aes(x=day, y=n)) + geom_point() + scale_x_continuous(breaks=c(42, 100, round(seq(365.25, 3000, 365.23))), trans=scales::boxcox_trans(0, 1))
+```
+
+\FloatBarrier
+
+### Cluster XXXlongname profiles based on Euclidean distance
+
+
+Based on the cubic spline predicted XXXlongname at evenly spread (on transformed scale) time points the Euclidean distance between patients XXXlongname curves can be calculated. As no extrapolation is done, no value will be availbale for time points outside the observed range. Hence, the number of patients that can be compared depend on the studied time interval.
+
+For a given time interval, all patients with observations at the beginning and end of this interval are clusterd based on their Euclidean distance using complete linkage hierarchical clustering. The optimal number of clusters is determined using the Silhouette value.
+
+```{r EuclideanclustersXXXid, warning=FALSE}
+timewindows <- as.list(as.data.frame(t(cbind(min=c(rep(365.25/12*1:6, 2), rep(365.25/12*1:3, 5:3)), max=c(rep(365.25*3,6), rep(365.25,6), 365.25/12*c(2:6,3:6, 4:6))))))
+names(timewindows) <- sapply(timewindows, function(lmt) paste0(paste(lmt/365.25*12, collapse="-"), "m"))
+euclust[[varid]] <- sapply(names(timewindows), function(lmtnm) {
+  Eucluster(CVsplines[[varid]]$splw, CVsplines[[varid]]$spline, CVsplines[[varid]]$lambda, timewindows[[lmtnm]], lmtnm, time="day", value=var)
+}, USE.NAMES = TRUE, simplify = FALSE)
+```
+
+```{r}
+##Observed days
+mnmx <- CV[[varid]] %>% group_by(subjid) %>% summarise(mn=min(day), mx=max(day))
+```
+
+```{r XXXidclusters, out.height=sprintf('%i%%', round(100/length(timewindows))), fig.show='hold', fig.cap=sprintf('%s clusters. Complete linkage hierarchical clustering based on Euclidean distance. Only patients with %s data during the studied time period are included in the clustering.', varname, varname)}
+for (lmt in names(timewindows)) {
+  plot(euclust[[varid]][[lmt]]$hpl) 
+  plot(euclust[[varid]][[lmt]]$pl)
+}
+```

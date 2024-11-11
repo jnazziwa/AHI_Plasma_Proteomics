@@ -1,0 +1,1627 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+%
+\documentclass[
+]{article}
+\title{Quantifying the dynamics of the blood plasma proteome during acute HIV-1 infection}
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{Spectronaut, neat and depleted}
+\author{}
+\date{\vspace{-2.5em}April 22, 2024}
+
+\usepackage{amsmath,amssymb}
+\usepackage{lmodern}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math}
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\IfFileExists{bookmark.sty}{\usepackage{bookmark}}{\usepackage{hyperref}}
+\hypersetup{
+  pdftitle={Quantifying the dynamics of the blood plasma proteome during acute HIV-1 infection},
+  hidelinks,
+  pdfcreator={LaTeX via pandoc}}
+\urlstyle{same} % disable monospaced font for URLs
+\usepackage[margin=1in]{geometry}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+% Set default figure placement to htbp
+\makeatletter
+\def\fps@figure{htbp}
+\makeatother
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+\usepackage{placeins}
+\usepackage{fancyhdr}
+\usepackage{graphicx}
+\usepackage{eurosym}
+\usepackage{booktabs}
+\usepackage{ifthen}
+
+\usepackage{float}
+\usepackage{colortbl}
+
+\pagestyle{fancy}
+\fancyhf{}
+
+\newcommand{\staff}{Eva Freyhult}
+\newcommand{\staffEmail}{eva.freyhult@nbis.se}
+\newcommand{\coordinator}{}
+\newcommand{\affilations}{National Bioinformatics Infrastructure Sweden, Science for Life Laboratory, Department of Medical Sciences, Uppsala University, Uppsala, Sweden}
+\newcommand{\supportWeb}{http://nbis.se/support/support.html}
+\newcommand{\noIssue}{\#5800}
+
+\addtolength{\headheight}{1.0cm}
+\lhead{\ifthenelse{\value{page}=1}{\includegraphics[height=1.3cm, width=2.2cm]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/nbislogo_green_txt_f34bc9d3c3.png}}{}}
+\rhead{\ifthenelse{\value{page}=1}{\includegraphics[height=1.3cm, width=4cm]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/SciLifeLab_Logotype_Green_POS.png}}{NBIS \noIssue}}
+
+%\chead{\today}
+
+\rfoot{\thepage}
+\fancypagestyle{plain}{\pagestyle{fancy}} 
+
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+
+\begin{document}
+\maketitle
+
+\begin{table}[H]
+\centering
+\begin{tabular}{ll}
+\toprule
+\cellcolor{gray!6}{Issue number} & \cellcolor{gray!6}{5800}\\
+NBIS expert & Eva Freyhult <eva.freyhult@nbis.se>\\
+\cellcolor{gray!6}{PI} & \cellcolor{gray!6}{Joakim Esbjörnsson <joakim.esbjornsson@med.lu.se>}\\
+Organization & Lund Univeristy\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\hypertarget{neat-and-depleted-proteomics-data}{%
+\section{Neat and depleted proteomics data}\label{neat-and-depleted-proteomics-data}}
+
+The number of proteins analyzed in neat; 404 and in depleted; 1145, of these 256 overlap.
+
+\FloatBarrier
+
+\FloatBarrier
+
+\FloatBarrier
+
+\hypertarget{sample-summary-using-pca}{%
+\subsection{Sample summary using PCA}\label{sample-summary-using-pca}}
+
+For both neat and depleted do the first two principal components show variation that can separate groups of samples that differ in terms of sample handling, cohort etc. These global differences can be biological or due to technincal aspects. In downstream analyses it is possible to adjust for PC1 and PC2.
+
+\begin{figure}
+\includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-1} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-2} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-3} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-4} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-5} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-6} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-7} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-8} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAneatall-9} \caption{PCA neat}\label{fig:PCAneatall}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-1} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-2} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-3} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-4} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-5} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-6} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-7} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-8} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAdeplall-9} \caption{PCA depl}\label{fig:PCAdeplall}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-1} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-2} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-3} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-4} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-5} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-6} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-7} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-8} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-9} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-10} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-11} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-12} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-13} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-14} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-15} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-16} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-17} \includegraphics[width=0.33\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PCAcohort-18} \caption{PCA per cohort or both together. all plots are based on proteins with values for 90 percent or more of the samples.}\label{fig:PCAcohort}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{biological-questions}{%
+\section{Biological questions}\label{biological-questions}}
+
+\hypertarget{difference-between-visits}{%
+\subsection{Difference between visits}\label{difference-between-visits}}
+
+\hypertarget{linear-mixed-effects-model}{%
+\subsubsection{Linear mixed effects model}\label{linear-mixed-effects-model}}
+
+Association of each protein with visit number was tested using a linear mixed model with a random intercept for each of the patients. The visit number is treated as a categorical variable.
+
+For discretized proteins values, logistic regression will be used instead of linear.
+
+A global ANOVA (analysis of variance) test is adopted to detect the proteins that are changed between visits. For the significant proteins post hoc tests are performed to figure out where the protein level change (between visits 0 an 1, 0 ad 2 or 1 and 2).
+
+Multiple testing correction according to Benjamini-Hochberg's FDR (false discovery rate) method is applied and the significance treshold is set to 5\% FDR.
+
+As an alternative to B-H FDR a fixed p-value cutoff will be used (in order to use the same cutoff for all tests, regardless of cohort, neat/depleted). The significance threshold will be set to 0.005.
+
+Based on one cohorts at the same time, the following model is used;
+
+\texttt{logI\ \textasciitilde{}\ visit\ +\ (1\textbar{}patientid)}
+
+The global p-value compares this model to the following;
+
+\texttt{logI\ \textasciitilde{}\ (1\textbar{}patientid)}
+
+As an alternative the two cohorts are analyzed together, using the following model;
+
+\texttt{logI\ \textasciitilde{}\ visit\ +\ Cohort\ +\ visit:Cohort\ +\ (1\textbar{}patientid)}
+
+which, to get the global p-value that indicate the influence of visit on logI, is compared to
+
+\texttt{logI\ \textasciitilde{}\ Cohort\ +\ (1\textbar{}patientid)}
+
+An addition model is investigated, where the interaction term is not included, i.e.~patients in both cohorts are assumed to be affected in the same way over time. (this is what is called `combined' in below forest plots).
+
+Alternative models are investigated where also PC1 and PC2 are included as covariates.
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtboth-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtboth-2} \caption{Compare analyses based on the cohorts separately and together.}\label{fig:visitcmpchrtboth}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtbothPCA-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtbothPCA-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtbothPCA-3} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtbothPCA-4} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtbothPCA-5} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/visitcmpchrtbothPCA-6} \caption{Compare analyses based on the cohorts separately and together, correcting for the first two principal components or not.}\label{fig:visitcmpchrtbothPCA}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/densityvisit-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/densityvisit-2} \caption{Density plots of visit p-values.}\label{fig:densityvisit}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/QQvisit-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/QQvisit-2} \caption{QQplots of visit p-values. Observed p-values vs expected p-values.}\label{fig:QQvisit}
+\end{figure}
+
+The number of proteins that differ significantly between visits vary between neat and depleted and between Durban and IAVI, see Table \ref{tab:signifvisitboth}.
+
+The results from analyses based on IAVI and Durban cohorts are combined by combining the p-values using a Stouffer's method, weighted by sample size (number of individuals with samples from both the visits that are compared). As the computed p-values are two-sided and Stoffer's method is based on p-values from one-sided tests, the sign of corresponding log2FC is used to transform the two-sided p-value to a one-sided p-value.
+
+\FloatBarrier
+
+\begin{table}
+
+\caption{\label{tab:signifvisitbothPCA}For each experiment (neat or depleted), cohort and contrast, the number of proteins tested and the number identified to differ significantly between visits}
+\centering
+\begin{tabular}[t]{l|l|l|r|l|l}
+\hline
+exp & Cohort & contrast & n & signif & metasignif\\
+\hline
+depl & Durban & v1 - v0 & 957 & 8 (0.8 \%) & 18 (1.9 \%)\\
+\hline
+depl & Durban & v2 - v0 & 957 & 38 (4.0 \%) & 132 (13.8 \%)\\
+\hline
+depl & Durban & v2 - v1 & 957 & 12 (1.3 \%) & 162 (16.9 \%)\\
+\hline
+depl & IAVI & v1 - v0 & 957 & 22 (2.3 \%) & 18 (1.9 \%)\\
+\hline
+depl & IAVI & v2 - v0 & 957 & 129 (13.5 \%) & 132 (13.8 \%)\\
+\hline
+depl & IAVI & v2 - v1 & 957 & 186 (19.4 \%) & 162 (16.9 \%)\\
+\hline
+neat & Durban & v1 - v0 & 379 & 5 (1.3 \%) & 27 (7.1 \%)\\
+\hline
+neat & Durban & v2 - v0 & 379 & 23 (6.1 \%) & 53 (14.0 \%)\\
+\hline
+neat & Durban & v2 - v1 & 379 & 21 (5.5 \%) & 59 (15.6 \%)\\
+\hline
+neat & IAVI & v1 - v0 & 379 & 25 (6.6 \%) & 27 (7.1 \%)\\
+\hline
+neat & IAVI & v2 - v0 & 379 & 44 (11.6 \%) & 53 (14.0 \%)\\
+\hline
+neat & IAVI & v2 - v1 & 379 & 58 (15.3 \%) & 59 (15.6 \%)\\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/volcanovisitPCA-1.pdf}
+\caption{\label{fig:volcanovisitPCA}Volcano plots for visits, adjust for PC1 and PC2.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/forestvisitagree-1.pdf}
+\caption{\label{fig:forestvisitagree}Significant differences between a pair of visits, where IAVI and Durban results agree (same sign of log2FC). Only proteins where a significant difference is seen between visits in at least one cohort and where the difference \textbar log2FC\textbar\textgreater=1. Adjusted for PC1 and PC2.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/forestvisitnotagree-1.pdf}
+\caption{\label{fig:forestvisitnotagree}Significant differences between a pair of visits, where IAVI and Durban results do not agree (different sign of log2FC). Only proteins where a significant difference is seen between visits in at least one cohort and where the difference \textbar log2FC\textbar\textgreater=1. Adjusted for PC1 and PC2.}
+\end{figure}
+
+\FloatBarrier
+
+\FloatBarrier
+
+\FloatBarrier
+
+\hypertarget{longitudinal-profiles-for-proteins-that-differ-between-visits}{%
+\paragraph{Longitudinal profiles for proteins that differ between visits}\label{longitudinal-profiles-for-proteins-that-differ-between-visits}}
+
+For each visit contrast select proteins that are significant (p\textless0.005) in at least one cohort, p\textless0.05 in both cohorts, log2FC of both cohorts have the same sign and \textbar log2FC\textbar\textgreater1.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofilevisitv1v0-1.pdf}
+\caption{\label{fig:longprofilevisitv1v0}Longitudinal profiles of proteins that differ between v1 - v0.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofilevisitv2v0-1.pdf}
+\caption{\label{fig:longprofilevisitv2v0}Longitudinal profiles of proteins that differ between v2 - v0.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofilevisitv2v1-1.pdf}
+\caption{\label{fig:longprofilevisitv2v1}Longitudinal profiles of proteins that differ between v2 - v1.}
+\end{figure}
+
+\FloatBarrier
+
+\FloatBarrier
+
+\hypertarget{clustering-of-visit-profiles}{%
+\subsection{Clustering of visit profiles}\label{clustering-of-visit-profiles}}
+
+Longitudinal profiles of proteins were clustered using a combination of kmeans and hierarchical clustering.
+
+In the clustering every subject and protein combination (both neat and depleted) that has measured values from all three time points are included. This means that in total 60897 profiles are studied (1336 * 54 = 83646).
+
+Before clustering all profiles are scaled to mean zero and unit variance.
+
+The clustering is performed in two steps.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  k-means clustering into 500 clusters.
+\item
+  The cluster centers from the 500 k-means clusters are clustered using hierachical clusering (complete linkage and Euclidean distance based on the scaled data).
+\end{enumerate}
+
+optimal number of clusters can be determined using e.g.~the elbow method, where the within sum of squares is computed for each of the clusters and summed up.
+
+\[WSS = \sum_{k=1}^K\sum_{i \in C_k}\sum_{j=1}^p (x_{ij} - m_{kj})^2,\]
+where \(K\) is the umber of clusters, \(p\) is the dimenstion (length of each object, here 3) and \(\mathbf{m}_k\) is the centroid of cluster \(k\).
+
+As the number of clusters increase, WSS will decrease, but by plotting WSS vs k the bend in the curve (the elbow) can be used to identify the optimal number of clusters.
+
+An alternative is the silhouette method, but as this methos required as distance matrix to be computed for all objects I have only computed this based on the 500 cluster that were clustered using hierarchical clustering.
+
+Both methods are in agreement, 6 clusters is optimal.
+
+\begin{figure}
+\includegraphics[width=0.9\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/optNclusters-1} \includegraphics[width=0.9\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/optNclusters-2} \caption{Optimal number of clusters. Upper plot show within sum of squares (WSS) for the clustwers, calculated based on the infividual objects (measurements). The lower plot show the silhouette width, calculated on the hierarchical cluster, i.e. based on the clustering of the 500 clusters.}\label{fig:optNclusters}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/hclust-1.pdf}
+\caption{\label{fig:hclust}Dendrogram of hierarchical clustering, six main clusters are colored.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/clusters6-1.png}
+\caption{\label{fig:clusters6}Six clusters.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/clusters10-1.png}
+\caption{\label{fig:clusters10}Ten clusters.}
+\end{figure}
+
+\begin{verbatim}
+## 
+##     1     2     3     4     5     6 
+## 13324 15531  5290  6848 10242  9662
+\end{verbatim}
+
+\begin{verbatim}
+## 
+##    1    2    3    4    5    6    7    8    9   10 
+## 6848 3862 6497 9299 5290 6232 6827 5800 6322 3920
+\end{verbatim}
+
+Note that as the protein levels are normalized per individual and protein, comparing two protein profiles using Euclidean distance correspond to using correlation. This means that very small changes for one subject and protein will be similar to large changes in another subject and protein, if the shape of the curves (the protein profile over time) are similar.
+
+\hypertarget{are-the-visit-profiles-for-a-particular-protein-similar-between-patients}{%
+\subsubsection{Are the visit profiles for a particular protein similar between patients?}\label{are-the-visit-profiles-for-a-particular-protein-similar-between-patients}}
+
+Identify proteins where one of the clusters is overrepresented.
+
+363 proteins are identified where the proportions of the five clusters are significantly different compared to the global distribution into the clusters.
+
+Of these proteins the number of proteins that are overrepresented in each of the clusters is as follows;
+
+\begin{verbatim}
+## # A tibble: 1 x 6
+##       p    p1    p2    p3    p4    p5
+##   <int> <int> <int> <int> <int> <int>
+## 1   363    30    32    78    86   141
+\end{verbatim}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/cl1-1.pdf}
+\caption{\label{fig:cl1}Overrepresented by cluster1.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/cl2-1.pdf}
+\caption{\label{fig:cl2}Overrepresented by cluster2.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/cl3-1.pdf}
+\caption{\label{fig:cl3}Overrepresented by cluster3.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/cl4-1.pdf}
+\caption{\label{fig:cl4}Overrepresented by cluster4.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/cl5-1.pdf}
+\caption{\label{fig:cl5}Overrepresented by cluster5.}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{cluster-based-on-mean-per-protein}{%
+\subsubsection{Cluster based on mean per protein}\label{cluster-based-on-mean-per-protein}}
+
+\begin{figure}
+\includegraphics[width=1\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/mcluster-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/mcluster-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/mcluster-3} \caption{Cluster based on mean scaled log intensity.}\label{fig:mcluster}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/mclusters8-1.png}
+\caption{\label{fig:mclusters8}Eight clusters, protein mean.}
+\end{figure}
+
+\FloatBarrier
+
+\begin{table}
+
+\caption{\label{tab:unnamed-chunk-21}Number of proteins in each cluster.}
+\centering
+\begin{tabular}[t]{l|r|r}
+\hline
+Cluster & depl & neat\\
+\hline
+1 & 79 & 19\\
+\hline
+2 & 215 & 31\\
+\hline
+3 & 227 & 157\\
+\hline
+4 & 179 & 111\\
+\hline
+5 & 85 & 22\\
+\hline
+6 & 121 & 14\\
+\hline
+7 & 37 & 19\\
+\hline
+8 & 14 & 6\\
+\hline
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\hypertarget{ars}{%
+\subsection{ARS}\label{ars}}
+
+\hypertarget{logistic-regression}{%
+\subsubsection{Logistic regression}\label{logistic-regression}}
+
+Only the IAVI cohort have ARS information and most patients in this cohort are men with subtype A1.
+
+One protein is studied at the time and logistic regression models are built to investigate the association between ARS and protein values at visits 0, 1 and 2. The models are adjusted for age and evaluated using likelihood ratio test (to investigate how much information the protein values at v0, v1 and v2 add to the model).
+
+Model 0: \texttt{ARS\ \textasciitilde{}\ age}
+
+Model 1: \texttt{ARS\ \textasciitilde{}\ age\ +\ v0\ +\ v1\ +\ v2}
+
+Model 1 is compared to model 0 using a likelihood ratio test (LRT).
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSlogreg-1.pdf}
+\caption{\label{fig:ARSlogreg}Proteins that significantly differ between ARS and no ARS (likelihood ratio test, logistic regression).}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{linear-regression}{%
+\subsubsection{Linear regression}\label{linear-regression}}
+
+Study one visit at the time, or one change between visits. The studied visits 0-2 are denoted v0, v1, v2 and the differences between visits v10=v1-v0, v20=v2-v0 and v21=v2-v1. For each of the visits or differences the association between one protein at the time and ARS is studied.
+
+Only the IAVI cohort have ARS information and most patients in this cohort are men with subtype A1.
+Linear regressions are performed separately for each time point (or difference) and protein to assess the association between protein value and ARS. Age included as a covariate in the model.
+
+Models of the form \texttt{logI\ \textasciitilde{}\ age\ +\ ARS} are used, where logI is the log2(intensity) at the studied visit (or a difference in log2(intensity) between two visits).
+
+\FloatBarrier
+
+\begin{table}
+
+\caption{\label{tab:v0}Top associations between protein value at visit 0 and ARS. Adjusted for PC1 and PC2.}
+\centering
+\begin{tabular}[t]{l|l|l|r|r}
+\hline
+Protein & exp & PG.Genes & beta & p\\
+\hline
+O75144.O75144.2 & depl & ICOSLG & 0.4913603 & 0.0013177\\
+\hline
+P02792 & depl & FTL & 3.4100151 & 0.0019947\\
+\hline
+Q16555.Q16555.2 & depl & DPYSL2 & -1.5436465 & 0.0035001\\
+\hline
+P27169 & depl & PON1 & 0.6142470 & 0.0040353\\
+\hline
+P10321 & depl & HLA-C & 2.0803802 & 0.0041252\\
+\hline
+P10909 & neat & CLU & 0.3668579 & 0.0047805\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v1}Top associations between protein value at visit 1 and ARS. Adjusted for PC1 and PC2.}
+\centering
+\begin{tabular}[t]{l|l|l|r|r}
+\hline
+Protein & exp & PG.Genes & beta & p\\
+\hline
+P02745 & depl & C1QA & 0.3426267 & 0.0041246\\
+\hline
+P35527 & depl & KRT9 & 2.0525411 & 0.0042152\\
+\hline
+P54577 & depl & YARS & 1.3582409 & 0.0045404\\
+\hline
+Q16610 & depl & ECM1 & -0.3773880 & 0.0049373\\
+\hline
+P51884 & depl & LUM & -0.3886412 & 0.0049852\\
+\hline
+Q8N6C8.Q8N6C8.3 & depl & LILRA3 & 1.0593348 & 0.0056458\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v2}Top associations between protein value at visit 2 and ARS. Adjusted for PC1 and PC2.}
+\centering
+\begin{tabular}[t]{l|l|l|r|r}
+\hline
+Protein & exp & PG.Genes & beta & p\\
+\hline
+P02746 & depl & C1QB & 0.3289445 & 0.0002662\\
+\hline
+P50395 & depl & GDI2 & 1.7437585 & 0.0014839\\
+\hline
+P02745 & depl & C1QA & 0.3228395 & 0.0018818\\
+\hline
+P09871 & depl & C1S & 0.2828130 & 0.0019243\\
+\hline
+P78417 & depl & GSTO1 & 1.1286009 & 0.0019921\\
+\hline
+P31150 & depl & GDI1 & 2.9847762 & 0.0021222\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v10}Top associations between protein value at visit 1 - 0 and ARS. Adjusted for PC1 and PC2.}
+\centering
+\begin{tabular}[t]{l|l|l|r|r}
+\hline
+Protein & exp & PG.Genes & beta & p\\
+\hline
+Q15942 & neat & ZYX & -3.8727086 & 0.0004165\\
+\hline
+P11684 & depl & SCGB1A1 & -3.7071139 & 0.0007779\\
+\hline
+O75144.O75144.2 & depl & ICOSLG & -0.5503170 & 0.0016854\\
+\hline
+P06396 & neat & GSN & -0.5554181 & 0.0031563\\
+\hline
+P35527 & depl & KRT9 & 2.3971225 & 0.0038537\\
+\hline
+P04196 & depl & HRG & -0.5109954 & 0.0041457\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v20}Top associations between protein value at visit 2 - 0 and ARS. Adjusted for PC1 and PC2.}
+\centering
+\begin{tabular}[t]{l|l|l|r|r}
+\hline
+Protein & exp & PG.Genes & beta & p\\
+\hline
+P25786.P25786.2 & depl & PSMA1 & 1.9618687 & 0.0005013\\
+\hline
+O75144.O75144.2 & depl & ICOSLG & -0.6814292 & 0.0005041\\
+\hline
+P78417 & depl & GSTO1 & 1.2133480 & 0.0010153\\
+\hline
+P07437 & neat & TUBB & 5.0948154 & 0.0013070\\
+\hline
+P11684 & depl & SCGB1A1 & -3.4083001 & 0.0015308\\
+\hline
+P23470.P23470.2 & depl & PTPRG & -0.5440663 & 0.0016790\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v21}Top associations between protein value at visit 2 - 1 and ARS. Adjusted for PC1 and PC2.}
+\centering
+\begin{tabular}[t]{l|l|l|r|r}
+\hline
+Protein & exp & PG.Genes & beta & p\\
+\hline
+P31150 & depl & GDI1 & 4.988137 & 0.0009928\\
+\hline
+P50395 & depl & GDI2 & 2.087650 & 0.0010416\\
+\hline
+A0A0A0MS15 & depl & IGHV3-49 & -3.128376 & 0.0010979\\
+\hline
+Q15942 & neat & ZYX & 2.724070 & 0.0048460\\
+\hline
+O43399.O43399.2.O43399.3.O43399.4.O43399.5.O43399.6.O43399.7 & depl & TPD52L2 & -1.231057 & 0.0055168\\
+\hline
+P18085 & depl & ARF4 & -1.321453 & 0.0058638\\
+\hline
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/QQARS-1.png}
+\caption{\label{fig:QQARS}QQplots of ARS p-values. Observed p-values vs expected p-values.}
+\end{figure}
+
+\hypertarget{pls-da-ars}{%
+\subsubsection{PLS-DA ARS}\label{pls-da-ars}}
+
+PLS-DA models are trained to predict ARS ``Yes'' or ``No''. The models are trained and evaluated in 10 5-fold cross-validations. For each test set the perforance measures error rate (ER), accuracy (acc) and AUC (area under receiver operator curve (ROC)) are computed.
+
+Models are constructed based on the following datasets;
+
+\begin{itemize}
+\tightlist
+\item
+  v0 + v1 + v2
+\item
+  v0 + v10 + v20
+\item
+  v1 + v2
+\item
+  v10 + v20
+\item
+  v10
+\item
+  v20
+\end{itemize}
+
+Only patients with protein values from v0, v1 and v2 and also an ARS value (Yes/No) are included in the analysis. This includes in total 33 patients, of which 20 with ARS and 13 without.
+
+\begin{table}
+
+\caption{\label{tab:ARSperf}Average performance measures of PLS-DA models predicting ARS as computed over the 50 test sets.}
+\centering
+\begin{tabular}[t]{l|r|r|r}
+\hline
+  & ER & acc & auc\\
+\hline
+v0v1v2 & 0.3660714 & 0.6339286 & 0.7530556\\
+\hline
+v0v10v20 & 0.1994048 & 0.8005952 & 0.8194444\\
+\hline
+v1v2 & 0.4380952 & 0.5619048 & 0.6900000\\
+\hline
+v10v20 & 0.2172619 & 0.7827381 & 0.8197222\\
+\hline
+v10 & 0.2812500 & 0.7187500 & 0.8033333\\
+\hline
+v20 & 0.2664399 & 0.7335601 & 0.8525000\\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSperf-1.pdf}
+\caption{\label{fig:ARSperf}Cross-validated performance measures for the ARS PLS-DA models.}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10v20-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10v20-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10v20-3} \caption{PLS-DA model based on v10 and v20. The score plot is shown for the model based on all samples. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.}\label{fig:ARSplsdav10v20}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10-3} \caption{PLS-DA model based on v10. The score plot is shown for the model based on v10. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.}\label{fig:ARSplsdav10}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=1\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ARSplsdav10vip-1} \caption{PLS-DA model based on v10, VIP values. Red point are for the full model and boxplot show distribution for cross-validation models.}\label{fig:ARSplsdav10vip}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{longitudinal-profiles-for-selected-ars-associated-proteins}{%
+\subsubsection{Longitudinal profiles for selected ARS associated proteins}\label{longitudinal-profiles-for-selected-ars-associated-proteins}}
+
+Select 20 proteins with highest VIP in v10 model predicting ARS.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileARS-1.pdf}
+\caption{\label{fig:longprofileARS}Longitudinal profiles of ARS associated proteins (top 20 according to VIP in v10 PLS-DA model).}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{cd4-absolute-count}{%
+\subsection{CD4 (absolute count)}\label{cd4-absolute-count}}
+
+\hypertarget{time-to-event}{%
+\subsubsection{Time to event}\label{time-to-event}}
+
+CD4 abs is measured several times for all patients, but the number of measurements varies between the patients. All cd4\_abs measurements (after Edi) are shown in figure \ref{fig:CD4persubj} and all measurements during first year after Edi are shown in \ref{fig:CD4persubj1y}.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4persubj-1.pdf}
+\caption{\label{fig:CD4persubj}CD4 absolute over time. Cutoffs 200, 350 and 500 are shown as dotted lines.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4persubj1y-1.pdf}
+\caption{\label{fig:CD4persubj1y}CD4 absolute over the first year after Edi. Cutoffs 200, 350 and 500 are shown as dotted lines.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4100-1.pdf}
+\caption{\label{fig:CD4100}CD4 counts first 100 days.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD41y-1.pdf}
+\caption{\label{fig:CD41y}Viral load first year.}
+\end{figure}
+
+\FloatBarrier
+
+Cox regression, Kaplan-Merier and logrank analyses are performed with time to first event (counting from Edi or a time point after Edi, e.g.~14 days of 6 weeks) and censoring at last time point before ART (or last observed time point if no ART).
+
+Studied events;
+
+\begin{itemize}
+\item
+  CD4\_500 Time to cd4\_abs\textless500 from Edi
+\item
+  CD4\_500\_14 Time to cd4\_abs\textless500 from Edi but only counting events after 14 days
+\item
+  \textbf{CD4\_500\_6w} Time to cd4\_abs\textless500 from 6 weeks after Edi
+\item
+  CD4\_350 Time to cd4\_abs\textless350 from Edi
+\item
+  CD4\_350\_14 Time to cd4\_abs\textless350 from Edi but only counting events after 14 days
+\item
+  CD4\_350\_6w Time to cd4\_abs\textless350 from 6 weeks after Edi
+\item
+  CD4\_200\_6w Time to cd4\_abs\textless200 from 6 weeks after Edi
+\item
+  \textbf{CD4\_nadir12w} Time to CD4 nadir (within 12w from Edi)
+\item
+  CD4\_peak12w\_6w Time to cd4\_abs peak value between 6w and 12w after Edi
+\item
+  \textbf{CD4\_peaknadir12w} Time to cd4\_abs peak value from nadir within first 12w after Edi
+\item
+  \textbf{CD4\_g500nadir12w} Time to cd4\_abs\textgreater500 from time of CD4 nadir, counting time from Edi
+\end{itemize}
+
+For CD4 peak and nadir, limit the follow-up to a maximum of 12 weeks , i.e.~find peak and nadir within the first 12 weeks after Edi.
+
+Other outcomes;
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{nadir12w} CD4 nadir value (lowest value in the first 12w after Edi)
+\item
+  \textbf{peak6w12w} CD4 peak value (after 6w, but within 12w after Edi)
+\item
+  \textbf{peaknadir12w} CD4 peak value (after nadir, but within 12w after Edi)
+\end{itemize}
+
+\FloatBarrier
+
+\hypertarget{kaplan-meier-and-logrank}{%
+\subsubsection{Kaplan-Meier and logrank}\label{kaplan-meier-and-logrank}}
+
+The events are studied using Kaplan-Meier curves and also the potential difference between cohorts investigated with logrank test (Table \ref{tab:CD4logrank}).
+
+\textbf{Definition fast/slow progression}
+
+Fast progressors are patients that reach CD4 below 500 within one year from Edi (not counting measurements within the first 6 weeks).
+
+Slow progressors are patients that one year after Edi still have not reached CD4 below 500.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4peaknadir-1.pdf}
+\caption{\label{fig:CD4peaknadir}CD4 over the first year after Edi. The first 12 weeks are marked green and nadir and peak (after nadir) within this period are marked blue/red.}
+\end{figure}
+
+\begin{table}
+
+\caption{\label{tab:CD4logrank}Logrank test evaluating difference between cohorts in terms of time to the different CD4 related events.}
+\centering
+\begin{tabular}[t]{l|r|r}
+\hline
+var & chisq & p\\
+\hline
+CD4\_200\_6w & 1.3157895 & 0.2513491\\
+\hline
+CD4\_350 & 0.0000102 & 0.9974529\\
+\hline
+CD4\_350\_14 & 0.0323334 & 0.8572979\\
+\hline
+CD4\_350\_6w & 0.7808165 & 0.3768915\\
+\hline
+CD4\_500 & 3.9907448 & 0.0457508\\
+\hline
+CD4\_500\_14 & 1.5845921 & 0.2081005\\
+\hline
+CD4\_500\_6w & 2.9221324 & 0.0873723\\
+\hline
+CD4\_g500nadir12w & 7.8005928 & 0.0052229\\
+\hline
+CD4\_nadir12w & 7.8714857 & 0.0050220\\
+\hline
+CD4\_peak6w12w & 0.2254161 & 0.6349437\\
+\hline
+CD4\_peaknadir12w & 6.2886022 & 0.0121517\\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}
+\includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4surv5006w-1} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4surv5006w-2} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4surv5006w-3} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4surv5006w-4} \caption{Time to CD4 count < 500, counting from 6 weeks after Edi.}\label{fig:CD4surv5006w}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4survg500nadir-1} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4survg500nadir-2} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4survg500nadir-3} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4survg500nadir-4} \caption{Time to CD4 count > 500, counting from CD4 nadir (day of lowest value within first 12 weeks).}\label{fig:CD4survg500nadir}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{cox-regression-to-investigate-association-with-protein-values}{%
+\subsubsection{Cox regression to investigate association with protein values}\label{cox-regression-to-investigate-association-with-protein-values}}
+
+One protein is studied at the time and in the cox regression protein is included as independent variable together with a set of covariates, one of the following sets;
+
+\begin{itemize}
+\tightlist
+\item
+  age \textbf{and Cohort}
+\item
+  age, gender \textbf{and Cohort}
+\item
+  age, gender, subtype A1
+\item
+  age, gender, subtype A1 and ARS
+\end{itemize}
+
+Instead of including all different subtypes, only subtype A1 or other is included as variable. In the data set there are
+
+Var1
+
+Freq
+
+A1
+
+31
+
+A2D
+
+1
+
+C
+
+20
+
+D
+
+1
+
+G
+
+1
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4survQQ-1.pdf}
+\caption{\label{fig:CD4survQQ}QQ plot of p-values for CD4 Cox regression for \textbf{neat}. Observed p-values vs expected p-values.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4survQQDdepl-1.pdf}
+\caption{\label{fig:CD4survQQDdepl}QQ plot of p-values for CD4 Cox regression for \textbf{depleted}. Observed p-values vs expected p-values.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/MACD4-1.pdf}
+\caption{\label{fig:MACD4}CD4\textless500 (after 6w), ln(HR) vs average log intensity (or delta log intensity).}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv0-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv0-2} \caption{CD4<500, 6w. v0}\label{fig:CD4forestv0}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv1-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv1-2} \caption{CD4<500, 6w. v1}\label{fig:CD4forestv1}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv2-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv2-2} \caption{CD4<500, 6w. v2}\label{fig:CD4forestv2}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv10-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv10-2} \caption{CD4<500, 6w. v10}\label{fig:CD4forestv10}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv20-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv20-2} \caption{CD4<500, 6w. v20}\label{fig:CD4forestv20}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv21-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/CD4forestv21-2} \caption{CD4<500, 6w. v21}\label{fig:CD4forestv21}
+\end{figure}
+
+\begin{table}
+
+\caption{\label{tab:CD4coxtabssave}Significant CD4 Cox regression results, based on all samples.}
+\centering
+\fontsize{8}{10}\selectfont
+\begin{tabular}[t]{l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l|l}
+\hline
+var & visit & avars & Protein & PG.Genes & exp & avelogI & HR & HR.low & HR.high & p & Cohort & Protein.y & PG.ProteinNames & protein\_type\_id & prep\_type & Excluded & proteingroup & uniprot1 & q\\
+\hline
+CD4\_nadir12w & v2 & Age & P22891 & PROZ & neat & 10.350 & 0.546 & 0.412 & 0.723 & 2.41e-05 & IAVI & P22891 & PROZ\_HUMAN & P22891-Neat & Neat & FALSE & normalized & P22891 & 0.0321\\
+\hline
+CD4\_nadir12w & v2 & AgeSex & P06396 & GSN & depl & 15.299 & 0.037 & 0.008 & 0.177 & 3.46e-05 & IAVI & P06396 & GELS\_HUMAN & P06396-Depleted & Depleted & FALSE & normalized & P06396 & 0.0462\\
+\hline
+CD4\_nadir12w & v2 & AgeSexA1 & P06396 & GSN & depl & 15.299 & 0.037 & 0.008 & 0.178 & 3.57e-05 & IAVI & P06396 & GELS\_HUMAN & P06396-Depleted & Depleted & FALSE & normalized & P06396 & 0.0477\\
+\hline
+CD4\_nadir12w & v2 & AgeSexA1ARS & O75882 & ATRN & neat & 10.852 & 0.107 & 0.037 & 0.308 & 3.51e-05 & IAVI & O75882 & ATRN\_HUMAN & O75882-Neat & Neat & FALSE & normalized & O75882 & 0.0469\\
+\hline
+CD4\_nadir12w & v20 & Age & P09172 & DBH & depl & 0.722 & 0.570 & 0.441 & 0.738 & 1.94e-05 & IAVI & P09172 & DOPO\_HUMAN & P09172-Depleted & Depleted & FALSE & normalized & P09172 & 0.0259\\
+\hline
+CD4\_nadir12w & v20 & Age & Q9NQ79.Q9NQ79.2 & CRTAC1 & depl & 0.366 & 0.363 & 0.225 & 0.586 & 3.28e-05 & IAVI & Q9NQ79;Q9NQ79-2 & CRAC1\_HUMAN & Q9NQ79.Q9NQ79.2-Depleted & Depleted & FALSE & normalized & Q9NQ79 & 0.0438\\
+\hline
+CD4\_nadir12w & v20 & CohortAge & P09172 & DBH & depl & 0.446 & 0.624 & 0.505 & 0.772 & 1.37e-05 & both & P09172 & DOPO\_HUMAN & P09172-Depleted & Depleted & FALSE & normalized & P09172 & 0.0183\\
+\hline
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\hypertarget{longitudinal-profiles-for-protein-associated-with-disease-progression}{%
+\subsubsection{Longitudinal profiles for protein associated with disease progression}\label{longitudinal-profiles-for-protein-associated-with-disease-progression}}
+
+Based on the Cox regression predicitng time to CD4\textless500 after 6 weeks, adjusting fo age, cohort and sex, select significant proteins.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileCD4500v0-1.pdf}
+\caption{\label{fig:longprofileCD4500v0}Longitudinal profiles of proteins at v0 associated with time to CD4 below 500.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileCD4500v1-1.pdf}
+\caption{\label{fig:longprofileCD4500v1}Longitudinal profiles of proteins at v1 associated with time to CD4 below 500.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileCD4500v10-1.pdf}
+\caption{\label{fig:longprofileCD4500v10}Longitudinal profiles of proteins at v10 associated with time to CD4 below 500.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileCD4500v2-1.pdf}
+\caption{\label{fig:longprofileCD4500v2}Longitudinal profiles of proteins at v2 associated with time to CD4 below 500.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileCD4500v20-1.pdf}
+\caption{\label{fig:longprofileCD4500v20}Longitudinal profiles of proteins at v20 associated with time to CD4 below 500.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileCD4500v21-1.pdf}
+\caption{\label{fig:longprofileCD4500v21}Longitudinal profiles of proteins at v21 associated with time to CD4 below 500.}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{viral-load}{%
+\subsection{Viral load}\label{viral-load}}
+
+The viral load (VL) is measured at sereval time points before and during the HIV infection, see Figure \ref{fig:VL}. The time period during which the VL is monitored varies between patients. The median time followed is almost 4 years after estimated date of infection (Edi), but one patient is followed over 9 years and another only two months.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLdates-1.pdf}
+\caption{\label{fig:VLdates}Viral load over time for each patient. Estimated date of infection is marked with a blue vertical line and estimated viral load set point is marked with a red horizontal line.}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{outliers}{%
+\subsubsection{Outliers}\label{outliers}}
+
+A single VL measurement that deviate a lot from the VL measurements before and after are usually considered to be incorrect (so called blips) and should be diregarded.
+
+In order to identify blips, a running median is calculated for time points, for each patient separately. The median is calculated for three consecutive data points and deviation from the median curve is calculated in order to identify deviating points. Data points that deviate by more than a factor of 100 from the median value will be considered as outliers and excluded, unless the data point is from day 30 or earlier.
+
+This simple method for removing deviating measurements is far from perfect, but at least the most obviously deviating points are excluded, see Figure \ref{fig:VLoutlier}.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLoutlier-1.pdf}
+\caption{\label{fig:VLoutlier}Viral load at days since estimated date of infection (Edi). Only days after Edi are shown. The line shows a calculated running median.}
+\end{figure}
+
+\hypertarget{art-start-date}{%
+\subsubsection{ART start date}\label{art-start-date}}
+
+Antiretroviral treatment (ART) reduces the viral load. When patients are grouped according to VL, all time points after ART start date should be removed, as the goal is not to model the treatment effect on VL.
+
+ART start date is read from the file \texttt{Protocol\_C\_with\_ART\_start\_date\_for\_JN\_23042021.xlsx}and \texttt{Durban\_ART\_startdate.xlsx}. Patients with no artstart\_date value, are assumed to not have received any treatment.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/ART-1.pdf}
+\caption{\label{fig:ART}Viral load over time colored according to if the sample is from before or after startdate of ART. Patients without ART startdate are assumed to be untreated.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VL100-1.pdf}
+\caption{\label{fig:VL100}Viral load first 100 days.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VL1y-1.pdf}
+\caption{\label{fig:VL1y}Viral load first year.}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{compare-vl-profiles}{%
+\subsubsection{Compare VL profiles}\label{compare-vl-profiles}}
+
+The VL is measured at different days (counting from Edi) for each patient. In order to be able to compare the VL profiles between patients curve fitting will be used.
+
+\hypertarget{cubic-smoothing-spline}{%
+\subsubsection{Cubic smoothing spline}\label{cubic-smoothing-spline}}
+
+A cubic smoothing spline (function \texttt{smooth.spline}) is fitted to the VL measurements, separately foreach patient, and based on the fitted curve VL values from the same time points (days) can be computed for all patients. However, no extrapolation will be done, i.e.~a VL value will not be estimated before first observation of after last observation for a patient. Hence, the length of VL vectors will still be unequal.
+
+The cubic spline is based on VL values from day 0 (Edi) until before ART start, outliers are excluded. VL will be log10-tranformed before calculation and as the time variable (day) is unevenly distributed this value is also log10-transformed (log10(x +1)) before calculating splines.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLdaydistr-1.pdf}
+\caption{\label{fig:VLdaydistr}Distribution of Viral Load and time points before and after transformation, colored according to subjid. Viral Load is log10-transformed and day is log10-transformed (log10(day+1)).}
+\end{figure}
+
+An optimal smoothing parameter (\texttt{spar}) is calculated using leave-one-out (LOO) cross-validation (CV). A smoothing spline is calculated per patient, but the CV sum of squares (SS) is computed over all patients. The value of \texttt{spar} in the range \([0,1]\) that give the minimum SS is selected.
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLspar-1} \caption{Sum of squares versus spar for Viral Load.}\label{fig:VLspar}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLbeforeART0-1.pdf}
+\caption{\label{fig:VLbeforeART0}VL before start of ART. The smoothing spline is shown in red.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLbeforeART-1.pdf}
+\caption{\label{fig:VLbeforeART}Viral Load before start of ART. The smoothing spline is shown in red.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/NVL-1.pdf}
+\caption{\label{fig:NVL}Number of patients with Viral Load observation per time point.}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{correlation-between-profiles}{%
+\subsubsection{Correlation between profiles}\label{correlation-between-profiles}}
+
+\hypertarget{all-time-points}{%
+\paragraph{All time points}\label{all-time-points}}
+
+Calculate pairwise correlation between patients VL curves, will be based on different number of data points depending on how long VL was observed for that particular patient.
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsplinecluster-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsplinecluster-2} \caption{Hierarchical clustering based on Pearson correlation of log10(VL) before start of ART. Clusters of VL profiles..}\label{fig:VLsplinecluster}
+\end{figure}
+
+\hypertarget{within-36-months-1096-days}{%
+\paragraph{Within 36 months (1096 days)}\label{within-36-months-1096-days}}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters1096-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters1096-2} \caption{Correlation based clusters of VL profiles, all samples before day 1096 and before ART.}\label{fig:VLclusters1096}
+\end{figure}
+
+\hypertarget{cluster-profiles-based-on-euclidean-after-center}{%
+\subsubsection{Cluster profiles based on Euclidean after center}\label{cluster-profiles-based-on-euclidean-after-center}}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsplinekomb-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsplinekomb-2} \caption{Hierarchical clustering based on mean and euclidean distance of centered log10(VL) before start of ART. Clusters of VL profiles..}\label{fig:VLsplinekomb}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{cluster-viral-load-profiles-based-on-euclidean-distance}{%
+\subsubsection{Cluster Viral Load profiles based on Euclidean distance}\label{cluster-viral-load-profiles-based-on-euclidean-distance}}
+
+Based on the cubic spline predicted Viral Load at evenly spread (on transformed scale) time points the Euclidean distance between patients Viral Load curves can be calculated. As no extrapolation is done, no value will be availbale for time points outside the observed range. Hence, the number of patients that can be compared depend on the studied time interval.
+
+For a given time interval, all patients with observations at the beginning and end of this interval are clusterd based on their Euclidean distance using complete linkage hierarchical clustering. The optimal number of clusters is determined using the Silhouette value.
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-3} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-4} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-5} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-6} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-7} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLclusters0-8} \caption{VL, complete linkage hierarchical clustering based on Euclidean distance. Only patients with VL data during studied time period are included in the clustering.}\label{fig:VLclusters0}
+\end{figure}
+
+\FloatBarrier
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/cmpclusters-1.pdf}
+\caption{\label{fig:cmpclusters}Compare clusters based on 1-6m and 1-12 m.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/Euclidean1-12m-1.pdf}
+\caption{\label{fig:Euclidean1-12m}VL clusters based on time period 1-12 months (30 to 364 days instead of 365.25 to include more patients), computed using complete linkage hierarchical clustering based on Euclidean distance.}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLpvlust-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLpvlust-2} \caption{VL. Multiscale bootstrap resampling. Clusters with alpha>=0.90 are shown to the right}\label{fig:VLpvlust}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLspline3years-1.pdf}
+\caption{\label{fig:VLspline3years}Clusters based on time period 1-12 months (30 to 364 days instead of 365.25 to include more patients), computed using complete linkage hierarchical clustering based on Euclidean distance.}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/Euclidean1-12mheatmap-1.pdf}
+\caption{\label{fig:Euclidean1-12mheatmap}Clusters based on time period 1-12 months, computed using complete linkage hierarchical clustering based on Euclidean distance.}
+\end{figure}
+
+\begin{table}
+
+\caption{\label{tab:clusters112eu}Summary of associations between clinical parameters and clusters calculated using data from 1-12 months and complete linkage hierarchical clustering based on Euclidean distance.}
+\centering
+\begin{tabular}[t]{l|l|l|l|l}
+\hline
+variable & 1 & 2 & test & p\\
+\hline
+\textbf{n} & 30 & 15 & none & \\
+\hline
+\textbf{ARS = Yes (\%)} & 14 (58.3) & 4 (50.0) & Fisher & 0.703\\
+\hline
+\textbf{Fever = Yes (\%)} & 20 (83.3) & 4 (50.0) & Fisher & 0.152\\
+\hline
+\textbf{Headache = Yes (\%)} & 13 (54.2) & 5 (62.5) & Fisher & 1\\
+\hline
+\textbf{Nightsweats = Yes (\%)} & 13 (54.2) & 5 (62.5) & Fisher & 1\\
+\hline
+\textbf{Myalgia = Yes (\%)} & 16 (66.7) & 5 (62.5) & Fisher & 1\\
+\hline
+\textbf{Fatigue = Yes (\%)} & 17 (70.8) & 5 (62.5) & Fisher & 0.681\\
+\hline
+\textbf{Skinrash = Yes (\%)} & 0 (0.0) & 1 (12.5) & Fisher & 0.25\\
+\hline
+\textbf{Oralulcers = Yes (\%)} & 4 (16.7) & 2 (25.0) & Fisher & 0.625\\
+\hline
+\textbf{Pharyngitis = Yes (\%)} & 10 (41.7) & 3 (37.5) & Fisher & 1\\
+\hline
+\textbf{Lymphadenopathy = Yes (\%)} & 9 (37.5) & 1 (12.5) & Fisher & 0.38\\
+\hline
+\textbf{Diarrhea = Yes (\%)} & 8 (33.3) & 1 (12.5) & Fisher & 0.386\\
+\hline
+\textbf{Anorexia = Yes (\%)} & 16 (66.7) & 4 (50.0) & Fisher & 0.433\\
+\hline
+\textbf{Site (\%)} &  &  & Fisher & 0.338\\
+\hline
+Durban & 6 (20.0) & 6 (40.0) &  & \\
+\hline
+Kigali & 2 (6.7) & 2 (13.3) &  & \\
+\hline
+Kilifi & 20 (66.7) & 7 (46.7) &  & \\
+\hline
+Lusaka & 2 (6.7) & 0 (0.0) &  & \\
+\hline
+\textbf{Risk\_grp (\%)} &  &  & Fisher & 0.337\\
+\hline
+DC & 4 (13.3) & 2 (13.3) &  & \\
+\hline
+HET & 8 (26.7) & 7 (46.7) &  & \\
+\hline
+MSM & 18 (60.0) & 6 (40.0) &  & \\
+\hline
+\textbf{Sex = Male (\%)} & 22 (73.3) & 7 (46.7) & Chisq & 0.152\\
+\hline
+\textbf{Age (mean(sd))} & 25.52 (6.74) & 27.65 (6.81) & Mann-Whitney & 0.0766\\
+\hline
+\textbf{Subtype (\%)} &  &  & Fisher & 0.649\\
+\hline
+A1 & 18 (60.0) & 8 (53.3) &  & \\
+\hline
+A2D & 1 (3.3) & 0 (0.0) &  & \\
+\hline
+C & 10 (33.3) & 6 (40.0) &  & \\
+\hline
+D & 0 (0.0) & 1 (6.7) &  & \\
+\hline
+G & 1 (3.3) & 0 (0.0) &  & \\
+\hline
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\hypertarget{linear-regression-1-12m-clusters}{%
+\subsubsection{Linear regression 1-12m clusters}\label{linear-regression-1-12m-clusters}}
+
+Linear regressions are performed separately for each time point (or difference) and protein to assess the association between protein value and 1-12m clusters. \textbf{Age and cohort} are included as covariates in the models.
+
+\FloatBarrier
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/QQunifVLcl112eu-1.pdf}
+\caption{\label{fig:QQunifVLcl112eu}QQplots of VL cl112eu p-values. Observed p-values vs expected p-values.}
+\end{figure}
+
+\FloatBarrier
+
+\begin{table}
+
+\caption{\label{tab:v0}Significant associations between protein value at visit 0 and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.}
+\centering
+\begin{tabular}[t]{l|l|r|r}
+\hline
+Protein & PG.Genes & beta & p\\
+\hline
+P35527 & KRT9 & -2.4187546 & 0.0006728\\
+\hline
+Q14624.4 & NaN & 1.0291525 & 0.0020647\\
+\hline
+P01714 & IGLV3-19 & -1.9780658 & 0.0024883\\
+\hline
+Q92820 & GGH & 0.4053898 & 0.0060946\\
+\hline
+P00748 & F12 & -0.4383617 & 0.0064027\\
+\hline
+O00187 & MASP2 & -1.2098149 & 0.0101527\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v1}Significant associations between protein value at visit 1 and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.}
+\centering
+\begin{tabular}[t]{l|l|r|r}
+\hline
+Protein & PG.Genes & beta & p\\
+\hline
+P36980.P36980.2 & CFHR2 & -0.6732384 & 0.0029908\\
+\hline
+A2NJV5 & IGKV2-29 & 0.7806361 & 0.0034389\\
+\hline
+P01871.P01871.2 & IGHM & 0.8257155 & 0.0038382\\
+\hline
+Q13093 & PLA2G7 & -2.9466916 & 0.0041808\\
+\hline
+P02753 & RBP4 & -0.4517751 & 0.0055159\\
+\hline
+P35542 & SAA4 & -0.6754525 & 0.0060907\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v2}Significant associations between protein value at visit 2 and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.}
+\centering
+\begin{tabular}[t]{l|l|r|r}
+\hline
+Protein & PG.Genes & beta & p\\
+\hline
+O43790.P78385.P78386.Q14533 & KRT86;KRT83;KRT85;KRT81 & 1.5257268 & 0.0003460\\
+\hline
+P21333.P21333.2 & FLNA & -1.4700591 & 0.0006236\\
+\hline
+P01344.P01344.2.P01344.3 & IGF2 & 0.5345129 & 0.0007461\\
+\hline
+P0CG47.P0CG48.P62979.P62987 & UBB;UBC;RPS27A;UBA52 & -0.5486878 & 0.0011081\\
+\hline
+P59998.P59998.3 & ARPC4 & -2.0649443 & 0.0019795\\
+\hline
+P10124 & SRGN & -1.9723806 & 0.0025215\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v10}Significant associations between protein value at visit 1 - 0 and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.}
+\centering
+\begin{tabular}[t]{l|l|r|r}
+\hline
+Protein & PG.Genes & beta & p\\
+\hline
+P35542 & SAA4 & -0.9841040 & 0.0006901\\
+\hline
+P08637 & FCGR3A & -0.7061783 & 0.0020085\\
+\hline
+Q8N392.Q8N392.2 & ARHGAP18 & 3.4038133 & 0.0020210\\
+\hline
+P11021 & HSPA5 & 0.5214789 & 0.0049439\\
+\hline
+P02656 & APOC3 & 1.1182881 & 0.0055916\\
+\hline
+P02765 & AHSG & 0.3203423 & 0.0058642\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v20}Significant associations between protein value at visit 2 - 0 and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.}
+\centering
+\begin{tabular}[t]{l|l|r|r}
+\hline
+Protein & PG.Genes & beta & p\\
+\hline
+Q14624.4 & NaN & -1.832200 & 0.0013753\\
+\hline
+P04083 & ANXA1 & -3.050842 & 0.0031266\\
+\hline
+P06744.P06744.2 & GPI & -1.094848 & 0.0035522\\
+\hline
+P18428 & LBP & -2.357887 & 0.0047138\\
+\hline
+P52209.P52209.2 & PGD & -1.575509 & 0.0048239\\
+\hline
+P07996 & THBS1 & -1.410804 & 0.0048465\\
+\hline
+\end{tabular}
+\end{table}
+\begin{table}
+
+\caption{\label{tab:v21}Significant associations between protein value at visit 2 - 1 and clusters based on 1-12m (complete linkage, Euclidean), adjusting for age and cohort.}
+\centering
+\begin{tabular}[t]{l|l|r|r}
+\hline
+Protein & PG.Genes & beta & p\\
+\hline
+P10124 & SRGN & -2.5727189 & 0.0001775\\
+\hline
+P59998.P59998.3 & ARPC4 & -3.0549626 & 0.0014693\\
+\hline
+Q9H8L6 & MMRN2 & 0.5216736 & 0.0015036\\
+\hline
+P10720 & PF4V1 & -2.5606208 & 0.0015361\\
+\hline
+P01834 & IGKC & -1.1014765 & 0.0015502\\
+\hline
+Q92496.Q92496.2 & CFHR4 & 0.6903385 & 0.0016108\\
+\hline
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\hypertarget{longitudinal-profiles-for-proteins-associated-with-viral-control}{%
+\subsubsection{Longitudinal profiles for proteins associated with viral control}\label{longitudinal-profiles-for-proteins-associated-with-viral-control}}
+
+Based on the linear regression predicting protein level from viral load cluster after 6 weeks, adjusting fo age, cohort and sex, select significant proteins.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileVLv0-1.pdf}
+\caption{\label{fig:longprofileVLv0}Longitudinal profiles of proteins at v0 associated with viral control clusters (VLcl112eu).}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileVLv1-1.pdf}
+\caption{\label{fig:longprofileVLv1}Longitudinal profiles of proteins at v1 associated with viral control clusters (VLcl112eu).}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileVLv10-1.pdf}
+\caption{\label{fig:longprofileVLv10}Longitudinal profiles of proteins at v10 associated with viral control clusters (VLcl112eu).}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileVLv2-1.pdf}
+\caption{\label{fig:longprofileVLv2}Longitudinal profiles of proteins at v2 associated with viral control clusters (VLcl112eu).}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileVLv20-1.pdf}
+\caption{\label{fig:longprofileVLv20}Longitudinal profiles of proteins at v20 associated with viral control clusters (VLcl112eu).}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/longprofileVLv21-1.pdf}
+\caption{\label{fig:longprofileVLv21}Longitudinal profiles of proteins at v21 associated with viral control clusters (VLcl112eu).}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{association-viral-control-and-disease-progression}{%
+\subsubsection{Association viral control and disease progression}\label{association-viral-control-and-disease-progression}}
+
+A contingency table for viral control (VL clusters 1 and 2) and disease progression (fast or slow) is shown in Table \ref{tab:CD4VL}.
+
+\begin{table}
+
+\caption{\label{tab:CD4VL}Overlap between viral controllers and fast/slow disease progression.}
+\centering
+\begin{tabular}[t]{l|r|r}
+\hline
+  & fast & slow\\
+\hline
+VL 1 & 24 & 6\\
+\hline
+VL 2 & 9 & 6\\
+\hline
+VL NA & 9 & 0\\
+\hline
+\end{tabular}
+\end{table}
+
+There is no association between viral control and disease progression (Fisher's exact test, p=0.1736018).
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/KMCD4VL-1.pdf}
+\caption{\label{fig:KMCD4VL}Kaplan-Meier curve for time to CD4\textless500 (after 6 weeks), stratified by viral load cluster. Logrank p-value is shown in plot.}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{machine-learning}{%
+\subsubsection{Machine learning}\label{machine-learning}}
+
+PLS-DA models are trained to predict 1-12 m complete, Euclidean cluster ``1'' or ``2''. The models are trained and evaluated in 10 5-fold cross-validations. For each test set the perforance measures error rate (ER), accuracy (acc) and AUC (area under receiver operator curve (ROC)) are computed.
+
+Models are constructed based on the following datasets;
+
+\begin{itemize}
+\tightlist
+\item
+  v0 + v1 + v2
+\item
+  v0 + v10 + v20
+\item
+  v1 + v2
+\item
+  v10 + v20
+\item
+  v10
+\item
+  v20
+\end{itemize}
+
+Exclude samples with any missing values at the analyzed visits.
+
+Only patients with a cluster identity (1/2) are included in the analysis. This includes in total 45 patients, of which 38 in cluster 1 and 7 in cluster 2.
+
+\FloatBarrier
+
+\begin{table}
+
+\caption{\label{tab:VLcl112euperf}Average performance measures of PLS-DA and RF models predicting VLcl112eu as computed over the 50 test sets.}
+\centering
+\begin{tabular}[t]{l|r|r|r|r}
+\hline
+\multicolumn{1}{c|}{ } & \multicolumn{2}{c|}{PLS-DA} & \multicolumn{2}{c}{RF} \\
+\cline{2-3} \cline{4-5}
+  & ER & acc & ER & acc\\
+\hline
+v0v1v2 & 0.459 & 0.541 & 0.398 & 0.602\\
+\hline
+v0v10v20 & 0.483 & 0.517 & 0.419 & 0.581\\
+\hline
+v1v2 & 0.485 & 0.515 & 0.403 & 0.597\\
+\hline
+v10v20 & 0.426 & 0.574 & 0.418 & 0.582\\
+\hline
+v10 & 0.477 & 0.523 & 0.458 & 0.542\\
+\hline
+v20 & 0.332 & 0.668 & 0.390 & 0.610\\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euperf-1.pdf}
+\caption{\label{fig:VLcl112euperf}Cross-validated performance measures for the VLcl112eu PLS-DA and RF models.}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euplsdav10v20-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euplsdav10v20-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euplsdav10v20-3} \caption{PLS-DA model based on v10 and v20. The score plot is shown for the model based on all samples. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.}\label{fig:VLcl112euplsdav10v20}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euplsdav20-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euplsdav20-2} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euplsdav20-3} \caption{PLS-DA model predicting VLcl112eu based on v20. The score plot is shown for the model based on v20. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.}\label{fig:VLcl112euplsdav20}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/PLSDAv20-1.pdf}
+\caption{\label{fig:PLSDAv20}PLS-DA model predicting VLcl112eu based on v20. Cross-validation scores. The filled points are for the test samples, whereas the open symbols show the training samples. Ten different cross-valudations are performed}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euRFv20-1} \caption{RF model predicting VLcl112eu based on v20. The multidimensional scalin (MDS) plot is shown for the model based on v20. In the second plot scores for the model based on all samples is shown together with test predictions overlaid and a line connecting the average for tehe test predicitons with the prediciton based on the model where all samples were also used for training. The loadings plot indicate the most important variables, all variables with VIP above 1.8 are printed and those with VIP above 2 are framed.}\label{fig:VLcl112euRFv20}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLcl112euRFv20CV-1.pdf}
+\caption{\label{fig:VLcl112euRFv20CV}RF model predicting VLcl112eu based on v20. Cross-validation scores. MDS plot. The filled points are for the test samples, whereas the open symbols show the training samples. Ten different cross-valudations are performed.}
+\end{figure}
+
+\FloatBarrier
+
+\newpage
+
+\hypertarget{time-to-first-time-point-with-vl-100000.}{%
+\subsubsection{\texorpdfstring{Time to first time point with \(VL > 100000\).}{Time to first time point with VL \textgreater{} 100000.}}\label{time-to-first-time-point-with-vl-100000.}}
+
+\begin{figure}
+\includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsurv-1} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsurv-2} \caption{Time (from Edi) to VL > 100000.}\label{fig:VLsurv}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsurv6w-1} \includegraphics[width=0.49\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsurv6w-2} \caption{Time to VL > 100000, from 6 weeks after Edi.}\label{fig:VLsurv6w}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLsurvQQ-1.pdf}
+\caption{\label{fig:VLsurvQQ}QQ plot of p-values for VL Cox regression. Observed p-values vs expected p-values.}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv0-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv0-2} \caption{VL<100000, 6w. v0}\label{fig:VLforestv0}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv1-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv1-2} \caption{VL<100000, 6w. v1}\label{fig:VLforestv1}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv2-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv2-2} \caption{VL<100000, 6w. v2}\label{fig:VLforestv2}
+\end{figure}
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv10-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv10-2} \caption{VL<100000, 6w. v10}\label{fig:VLforestv10}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv20-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv20-2} \caption{VL<100000, 6w. v20}\label{fig:VLforestv20}
+\end{figure}
+\begin{figure}
+\includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv21-1} \includegraphics[width=0.5\linewidth]{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/VLforestv21-2} \caption{VL<100000, 6w. v21}\label{fig:VLforestv21}
+\end{figure}
+
+\FloatBarrier
+
+\hypertarget{global-clustering}{%
+\subsection{Global clustering}\label{global-clustering}}
+
+Cluster all samples based on protein values from all three visits. Euclidean distance between patients are computed after standardization of protein values (i.e.~mean centering and dividing by standard deviation for each protein). Clustering is performed using complete linkage hierarchical clustering.
+
+In the heatmap also proteins are clustered, here using complete linkage and a correlation based distance.
+
+\begin{figure}
+\centering
+\includegraphics{C:/Users/ja1316na/Documents/postdoc/SMS-4964-19-hiv/report_aux/NBIS5800neatdepl_files/figure-latex/globclustneat-1.pdf}
+\caption{\label{fig:globclustneat}Patient clustering based on all neat proteins with 90\% or more detectable values, all time points included.}
+\end{figure}
+
+\end{document}

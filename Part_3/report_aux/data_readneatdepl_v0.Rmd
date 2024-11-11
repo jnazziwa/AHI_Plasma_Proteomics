@@ -1,0 +1,225 @@
+<!-- Read neat and depl from old spectronaut files -->
+<!-- Use _v1 or _v2 instead!-->
+
+```{r clindata, child="clindata.Rmd"}
+
+```
+
+```{r}
+saveRDS(vload, file.path(intermediate, "vload.Rds"))
+saveRDS(clinc, file.path(intermediate, "clinc.Rds")) 
+```
+
+
+
+```{r imputeandnorm} 
+imputeandnorm <- function(spct, fnorm=0.20, fexcl=0.80) {
+  ##  A modified version of Filip Arman and Christofer Karlsson's approach
+  
+  # reshape to long
+  spct_l <- spct %>%
+    `^`(2, .) %>%     # base 2
+    as_tibble(rownames = "sampleid") %>%
+    pivot_longer(-sampleid, names_to = "Protein")
+  
+  # determine max impute value per protein
+  max.impute.value <- spct_l %>%
+    group_by(Protein) %>%
+    summarise(min_int = min(value, na.rm = T), .groups = "drop") %>%
+    mutate(max_imp = 0.5 * min_int)
+  min_imp <- min(max.impute.value$min_int)
+  
+  # join the max impute values to the prot.df
+  # impute missing values with runif
+  prot.df.imputed <- spct_l %>%
+    left_join(max.impute.value, by = "Protein") %>%
+    mutate(
+      Imputed = if_else(is.na(value), TRUE, FALSE),
+      r_unif = sapply(max_imp, function(x) {
+        suppressWarnings(runif(1, min = 0.005*x, max = x))
+      }),
+      value = if_else(is.na(value), r_unif, value)
+    ) %>% group_by(Protein) %>% 
+    mutate(fmiss=mean(Imputed)) %>% ungroup()
+  
+  ## Fraction missing values
+  fmiss <- prot.df.imputed %>% group_by(Protein) %>% summarize(fmiss=mean(Imputed))
+  protnorm <- fmiss %>% filter(fmiss<=fnorm) %>% pull("Protein")
+  
+  # Store imputed data
+  spct_imp <- prot.df.imputed %>% filter(fmiss<=fnorm) %>%
+    pivot_wider(sampleid, names_from = Protein) %>%
+    column_to_rownames("sampleid") %>%
+    as.matrix() %>% 
+    log2()
+  
+  ##  Normalization ----------------------------------------------------------
+  # Normalized by variance stabilizing normalization, based only on proteins with < 20% missing
+  spct_norm <- t(limma::normalizeVSN(2^t(spct_imp[, protnorm])))
+  
+  ## Discretize proteins with between 20 and 80% missing
+  spct_disc <- prot.df.imputed %>% filter(fmiss>fnorm&fmiss<=fexcl) %>% mutate(detected=!Imputed) %>%
+    pivot_wider(sampleid, names_from = Protein, values_from = detected) %>%
+    column_to_rownames("sampleid") %>%
+    as.matrix()
+  
+  if (ncol(spct_disc)==0)
+    spct_proc <- spct_norm
+  else
+    spct_proc <- cbind(spct_norm, spct_disc)
+  proteinlist <- list(discrete=colnames(spct_disc), norm=colnames(spct_norm))
+  proteins <- proteins %>% mutate(Discrete=id %in% colnames(spct_disc), Imputed=id %in% colnames(spct_norm), Excluded=!(id %in% colnames(spct_proc)))
+  Nprot <-sapply(proteinlist, length)
+  Nprot['excluded'] <- ncol(spct) - sum(Nprot)
+  ## For compatibility with older code
+  protkeep <-unlist(proteinlist)
+  
+  ## Raw data before imputation
+  sinfo_raw <- spct %>% 
+    as_tibble(rownames = "sampleid") %>%
+    pivot_longer(all_of(colnames(spct)), "Protein", values_to = "logIntensity0")  %>% mutate(Discrete=Protein %in% colnames(spct_disc), Imputed=Protein %in% colnames(spct_norm), Excluded=!(Protein %in% colnames(spct_proc)))
+  
+  #  combine clinical info and proteomic data
+  X <- sinfo_raw %>% full_join(spct_proc %>% 
+                                 as_tibble(rownames = "sampleid") %>% 
+                                 pivot_longer(all_of(colnames(spct_proc)), "Protein", values_to = "logIntensity")) %>% mutate(proteingroup=ifelse(is.na(logIntensity), "excluded", ifelse(Discrete, "discretized", "normalized")))
+  
+  return(X) #list(norm=spct_norm, disc=spct_disc))
+}
+```
+
+```{r loadneatspectronaut, eval=TRUE, warning=FALSE}
+# * "Neat" samples without any depletion
+# 1. Read and parse the output of Spectronaut
+# 2. Read and parse the tables about injection
+# 3. make `durban` clean according to info (meeting note : 2020-10-26)
+# 4. make `injtn` tidy
+#   a. split to patientID and visit number
+#   b. attach `durban`
+setwd("~/Support/4964/proteomics2020/MunGwan/MunGwanscripts/")
+fn <- "~/Support/4964/proteomics2020/MunGwan/data/s1_neat_Spectronaut.v02.RData"
+if (file.exists(fn)) {
+  load(fn)
+} else {
+  source("gen-s1_neat_Spectronaut.v01.R")
+  source("gen-s1_neat_Spectronaut.v02.R")
+}
+```
+
+```{r neatproteins}
+Proteins <- proteins %>% mutate(exp="neat")
+```
+
+```{r neatimputeandnorm, warning=FALSE}
+chrt <- with(injtn %>% filter(sampleid %in% rownames(spct)),  split(sampleid, Cohort))
+chrt$both <- rownames(spct)
+chrt <- chrt[c(3, 1:2)]
+
+set.seed(20210204)
+neat_spct <- lapply(chrt, function(ind)  imputeandnorm(spct[ind,]))
+neat_spct$both80 <- imputeandnorm(spct, fnorm=0.80, fexcl=0.80)
+
+neat <- neat_spct$both %>% full_join(full_join(neat_spct$Durban, neat_spct$IAVI), by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_cohort"))
+neat <- neat_spct$both80 %>% full_join(neat, by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_2080"))
+
+sampleinfo <- injtn %>% dplyr::select(sampleid, subjid, visit_nr) %>% 
+  left_join(clinc, by = "subjid") %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) %>% 
+  mutate(visit_nr = ordered(visit_nr, levels = c("0", "1", "2"))) 
+
+neat <- neat %>% left_join(sampleinfo)
+```
+
+```{r}
+neatinfo <- read_excel("data/NeatPlasma_MS_run_conditions.xlsx") %>% mutate(FileName=sub("uL", "ul", FileName))
+sampleinfo <- sampleinfo %>% left_join(neatinfo, by=c(sampleid="FileName"))
+
+neat <- neat %>% left_join(neatinfo, by=c(sampleid="FileName"))
+```
+
+
+```{r loaddeplspctdata, eval=TRUE}
+## Call Mun-Gwan's scripts
+## Run only once
+
+setwd("~/Support/5800/proteomics/depl/MunGwan/")
+
+ofnm <- c("../data/s1_depl_Spectronaut.v01.RData", "../data/s1_depl_Spectronaut.v02.RData")
+
+if (file.exists(ofnm[1])) {
+  load(ofnm[1])
+} else {
+  #  Read the table and create RData file of viral load
+  source("gen-s1_depl_Spectronaut.v01.R")
+}
+
+if (file.exists(ofnm[2])) {
+  load(ofnm[2])
+} else {
+  #  Read the table and create RData file of clinical info
+  source("gen-s1_depl_Spectronaut.v02.R")
+}
+```
+
+```{r deplproteins}
+Proteins <- Proteins %>% full_join(proteins %>% mutate(exp="depl")) %>% mutate(Protein=id)
+```
+
+```{r deplimputeandnorm, warning=FALSE}
+deplsampleinfo <- sinfo %>% 
+  mutate(subjid=str_pad(subjid, 3, pad="0")) %>%
+  left_join(clinc, by = "subjid") %>% 
+  mutate(Age = as.numeric(Edi - Dob) / 365.25) %>% 
+  mutate(visit_nr = ordered(visit_nr, levels = c("0", "1", "2")))
+
+chrt <- with(deplsampleinfo %>% filter(sampleid %in% rownames(spct)),  split(sampleid, Cohort))
+chrt$both <- rownames(spct)
+chrt <- chrt[c(3, 1:2)]
+
+set.seed(20210204)
+depl_spct <- lapply(chrt, function(ind)  imputeandnorm(spct[ind,]))
+depl_spct$both80 <- imputeandnorm(spct, fnorm=0.80, fexcl=0.80)
+
+depl <- depl_spct$both %>% full_join(full_join(depl_spct$Durban, depl_spct$IAVI), by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_cohort"))
+depl <- depl_spct$both80 %>% full_join(depl, by=c("sampleid", "Protein", "logIntensity0"), suffix=c("", "_2080"))
+
+depl <- depl %>% left_join(deplsampleinfo)
+```
+
+```{r}
+deplinfo <- read_excel("data/Copy of Depleted_plasma_samples_DIAresultSummary_plus depletionbatch_19Nov21.xlsx", skip=1)%>% filter(!is.na(`#MassSpecID`)) %>% rename(Replicate=`#MassSpecID`)
+deplinfo <- deplinfo %>% mutate(id2=sub("_.*", "", sub("[0-9]*_", "", deplinfo$FileName)))
+deplsampleinfo <- deplsampleinfo %>% left_join(deplinfo)
+depl <- depl %>% left_join(deplinfo)
+```
+
+```{r data}
+#neat <- readRDS(file.path(dataneat, "neat.Rds"))
+#depl <- readRDS(file.path(datadepl, "depl.Rds"))
+X <- neat %>% mutate(exp="neat") %>% full_join(depl %>% mutate(exp="depl"))
+rm(neat) 
+rm(depl)
+X <- X %>% mutate(visit=factor(paste0("v", visit_nr), ordered=FALSE),
+                  visitnr=as.numeric(as.character(visit_nr)))
+```
+
+```{r prots, dependson="data"}
+Proteins <- Proteins %>% full_join(X %>% select(Protein, proteingroup, exp) %>% distinct()) 
+table(Proteins$proteingroup, Proteins$exp) %>% kable(caption="Number of proteins from each of the experiments.") %>% kable_styling(full_width = FALSE)
+prots <- with(Proteins, split(Protein, exp))
+protoverlap <- intersect(prots$neat, prots$depl)
+
+protgroups <- Proteins %>% group_by(Protein) %>% summarize(neat=sum(exp=="neat"), neatgr=if (any(exp=="neat")) proteingroup[exp=="neat"] else NA, depl=sum(exp=="depl"), deplgr=if (any(exp=="depl")) proteingroup[exp=="depl"] else NA)
+table(paste("neat", protgroups$neatgr), paste("depl", protgroups$deplgr))[c(1,3,2), c(1,3,2)]  %>% kable(caption="Number of proteins from each of the experiments.") %>% kable_styling(full_width = FALSE)
+```
+
+
+```{r, dependson="data"}
+protoverlap0 <- protgroups %>% filter(neatgr!="excluded", deplgr!="excluded") %>% pull("Protein")
+protoverlap2 <- protgroups %>% filter(neatgr=="normalized", deplgr=="normalized") %>% pull("Protein") 
+```
+
+```{r datatoJamirah, dependson="data"}
+##To Jamirah
+write_csv(X %>% pivot_wider(id_cols=c("Protein", "subjid", "visit_nr"), names_from=exp, values_from = c("logIntensity", "logIntensity0")) %>% arrange(Protein, subjid), file=file.path(intermediate, "logI_all.csv"))
+```

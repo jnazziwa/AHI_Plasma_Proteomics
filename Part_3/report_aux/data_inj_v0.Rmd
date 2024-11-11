@@ -1,0 +1,44 @@
+## Injection order
+
+```{r injorder, fig.cap="log(Intensity) (not normalization) and injection order (x-axis).", fig.width=12, warning=FALSE}
+X <- X %>% mutate(Replicate=ifelse(exp=="neat", Replicate.neat, Replicate.depl))
+X %>% filter(!is.na(logIntensity0)) %>% ggplot(aes(x=factor(Replicate), y=logIntensity0, fill=visit_nr)) + geom_boxplot() + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free_x", space="free_x") + theme_classic()
+#X %>% filter(proteingroup != "excluded") %>% ggplot(aes(x=factor(Replicate), y=logIntensity0, fill=visit_nr)) + geom_boxplot() + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free_x", space="free_x") + theme_classic()
+```
+
+```{r pirateinjorder, fig.cap="log(Intensity) (not normalization) and injection order (x-axis).", fig.width=12, warning=FALSE, eval=FALSE}
+X %>% ggplot(aes(x=factor(Replicate), y=logIntensity0, color=visit_nr, fill=visit_nr)) + geom_pirate(points_params = list(shape=".")) + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free_x", space="free_x") + theme_classic()
+#X %>% filter(proteingroup != "excluded") %>% ggplot(aes(x=factor(Replicate), y=logIntensity0, fill=visit_nr)) + geom_boxplot() + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free_x", space="free_x") + theme_classic()
+```
+
+```{r miss, fig.cap="Number of missing protein values per sample.", fig.width=12, warning=FALSE}
+X %>% group_by(exp, Cohort, Replicate, subjid, visit_nr) %>% summarize(rerun=all(grepl("re-run", Comment)), miss=sum(is.na(logIntensity0))) %>% ggplot(aes(x=factor(Replicate), y=miss, color=rerun, fill=visit_nr)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free", space="free_x") + scale_color_manual(values=c("white", "black")) + theme_classic()
+```
+
+```{r peptidemiss, fig.cap="Number of missing protein values versus peptide concentration (for depleted plasma).", fig.show="hold", out.width="50%", warning=FALSE}
+tmp <- X %>% filter(exp=="depl") %>% group_by(Cohort, Replicate, subjid, visit_nr) %>% summarize(rerun=all(grepl("re-run", Comment)), miss=sum(is.na(logIntensity0)), `Peptide concentration (ug/mL )`=unique(`Peptide concentration (μg/mL )`), `Depletion and digestion date or batch`=unique(`Depletion and digestion date or batch`))
+tmp %>% ggplot(aes(x=`Peptide concentration (ug/mL )`, y=miss, color=visit_nr, shape=Cohort)) + geom_point() + theme_bw() + scale_shape_manual(values=c(3, 19)) + theme_bw() 
+#X %>% group_by(exp, Cohort, Replicate, subjid, visit_nr) %>% summarize(rerun=all(grepl("re-run", Comment)), miss=sum(is.na(logIntensity0)), `Peptide concentration (μg/mL )`=unique(`Peptide concentration (μg/mL )`), `Depletion and digestion date or batch`=unique(`Depletion and digestion date or batch`))
+tmp%>% ggplot(aes(x=`Peptide concentration (ug/mL )`, y=miss, color=factor(`Depletion and digestion date or batch`), shape=Cohort)) + geom_point() + theme_bw() + scale_shape_manual(values=c(3, 19)) + scale_color_discrete("Depl/Digest") 
+```
+
+```{r missdigest, fig.cap="Number of missing protein values per sample per visit and day of depletion/digestion.", fig.width=12, warning=FALSE}
+#deplprot <- Proteins %>% filter(exp=="depl") %>% pull("Protein")
+#lI0 <- X %>% filter(exp=="depl") %>% pivot_wider(id_cols = c(subjid, visit_nr, Cohort, Replicate, `Depletion and digestion date or batch`, `Digestion Run Order`, `Peptide concentration (μg/mL )`), names_from = Protein, values_from = "logIntensity0")
+annot <- X %>% filter(exp=="depl") %>% group_by(Cohort, `Depletion and digestion date or batch`, `Digestion Run Order`, subjid, visit_nr) %>% summarize(rerun=all(grepl("re-run", Comment)), miss=sum(is.na(logIntensity0)), .groups="drop")
+#lI0 <- lI0 %>% left_join(annot) %>% arrange(Cohort, Replicate)
+
+annot %>% ggplot(aes(x=visit_nr, y=miss, color=factor(`Depletion and digestion date or batch`), shape=Cohort)) + geom_quasirandom() + scale_shape_manual(values=c(3,19)) + scale_color_discrete("Deplete/Digest") + theme_bw()
+
+#Heatmap(matrix(rowMeans(lI0[, deplprot], na.rm=TRUE), nrow =1), top_annotation = HeatmapAnnotation(cohort=tmp$Cohort, miss=anno_barplot(lI0$miss), digest=factor(lI0$`Depletion and digestion date or batch`), digestorder=lI0$`Digestion Run Order`, visit=lI0$visit_nr), cluster_columns = FALSE, show_heatmap_legend = FALSE, heatmap_height = unit(0.1, "npc"))
+
+#tmp %>% ggplot(aes(x=paste(`Depletion and digestion date or batch`, `Digestion Run Order`), y=miss, color=Cohort, fill=visit_nr)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle=90)) + scale_color_manual(values=c("white", "black")) + theme_classic()
+```
+
+```{r injordernorm, fig.cap="log(Intensity) (normalization) and injection order (x-axis).", fig.width=12, warning=FALSE}
+X %>% ggplot(aes(x=factor(Replicate), y=logIntensity, fill=visit_nr)) + geom_boxplot() + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free_x", space="free_x") + theme_classic()
+```
+
+```{r pirateinjordernorm, fig.cap="log(Intensity) (normalized) and injection order (x-axis).", fig.width=12, warning=FALSE, eval=FALSE}
+X %>% ggplot(aes(x=factor(Replicate), y=logIntensity, fill=visit_nr, color=visit_nr))  + geom_pirate(points_params = list(shape=".")) + theme(axis.text.x = element_text(angle=90)) + facet_grid(exp~Cohort, scales="free_x", space="free_x") + theme_classic()
+```
